@@ -1,12 +1,12 @@
-KB Portfolio (Sanitized)
-知识库索引与检索作品集（脱敏版）
+RAG Hybrid Retrieval Demo (Sanitized)
+面向 RAG 的混合检索 Demo（脱敏版）
 
-A portfolio-friendly Knowledge Base (KB) indexing & retrieval system demo.
-This repository demonstrates a document-to-search pipeline with OpenSearch, designed to be clean, reproducible, and runnable on any machine.
+A portfolio-friendly hybrid retrieval demo for RAG-style systems.
+This repository demonstrates a document-to-retrieval pipeline with support for full-text indexing, vector-ready design, and hybrid retrieval, designed to be clean, reproducible, and runnable on any machine.
 
-这是一个用于作品集展示的知识库（KB）索引与检索 Demo。
+这是一个面向 RAG 场景的混合检索作品集 Demo。
 本仓库展示 文档 → 解析 → 分块 → 索引 → 检索（高亮） 的完整闭环，
-目标是做到 干净、可复现、任意新环境一键跑通。
+支持全文索引、向量检索扩展与混合检索设计，目标是做到 干净、可复现、任意新环境一键跑通。
 
 ✅ This repository is sanitized / 本仓库已完成脱敏
 
@@ -16,22 +16,22 @@ No internal business code / 不包含任何公司内部业务代码
 
 No environment-specific dependencies / 不依赖特定机器/特定环境路径
 
-
 🚀 What This Demo Shows / 本 Demo 展示内容
 Core Pipeline / 核心流程
 
 File upload / 文件上传
 
-Text extraction & cleaning / 文本解析与清洗
+Text extraction and cleaning / 文本解析与清洗
 
 Chunking with overlap / 分块（含 overlap）
 
-Full-text indexing with OpenSearch / 使用 OpenSearch 全文索引
+Full-text indexing / 全文索引
+
+Hybrid retrieval design / 混合检索设计
 
 Search with highlighted results / 支持高亮检索结果
 
-Idempotent reindex (index can be rebuilt anytime) / 幂等重建索引（可随时重建）
-
+Safe index rebuild and reconstruction / 支持安全索引重建与索引重构
 
 🧩 Indexing Design / 索引设计思想
 
@@ -41,20 +41,21 @@ Stable chunk IDs for safe rebuild / chunk ID 稳定，支持安全重建
 
 Clear separation between source files and index data / 源文件与索引数据清晰隔离
 
-Index mode concept (design-level) / 索引模式概念（设计层面）：
+Retrieval-oriented structure for future RAG workflows / 面向 RAG 工作流的检索结构设计
 
-TEXT（全文检索）
+Index Modes / 索引模式
 
-VECTOR（向量检索）
+TEXT / 全文检索
 
-HYBRID（混合检索）
+VECTOR / 向量检索
 
-This demo implements TEXT (OpenSearch) mode.
-Vector indexing is supported in the full system design.
+HYBRID / 混合检索
 
-本 Demo 实现的是 TEXT（OpenSearch）模式。
-向量索引属于完整系统设计的一部分，此仓库以可运行 Demo 为主。
+This demo is designed around hybrid indexing.
+It supports full-text retrieval directly and is structured to accommodate vector-based retrieval and hybrid retrieval strategies.
 
+本 Demo 以混合索引设计为核心。
+当前可直接展示全文检索能力，同时在结构上支持向量检索扩展与混合检索策略。
 
 🧰 Requirements / 运行环境
 
@@ -96,11 +97,12 @@ Command / 命令：
 curl -F "file=@demo.txt" http://localhost:8080/upload
 ```
 Response example / 返回示例：
+```
 {
 "fileId": "69742593-d8a8-450a-a933-78996802aa9d",
 "filename": "demo.txt"
 }
-
+```
 
 3) Build / rebuild the index / 构建（或重建）索引
 
@@ -123,11 +125,11 @@ Refresh index for immediate search / 刷新索引以便立刻可搜
 
 Command / 命令：
 ```
-curl "http://localhost:8080/search?q=水
-"
+curl "http://localhost:8080/search?q=水"
 ```
 
 Example response / 返回示例：
+```
 {
 "count": 2,
 "results": [
@@ -138,50 +140,70 @@ Example response / 返回示例：
 }
 ]
 }
+```
 
+🔄 Index Reconstruction / 索引重构设计说明
 
-🔄 Reindexing Design / 重建索引设计说明
+This demo supports safe, repeatable, and deterministic index reconstruction.
+本 Demo 支持安全、可重复、结果可预测的索引重构。
 
-This demo supports safe and repeatable reindexing.
-本 Demo 支持安全、可重复的重建索引（幂等）。
+Why reconstruct the index? / 为什么需要索引重构
 
-Why reindex? / 为什么需要重建索引
+The index may need to be rebuilt after deletion or corruption / 索引删除、损坏后需要恢复
 
-Index can be rebuilt if deleted or corrupted / 索引删除或损坏后可重建
+Chunking parameters may change / 分块参数可能调整（如 chunk size / overlap）
 
-Chunking parameters may change / 分块参数可能调整（chunkSize/overlap）
+Retrieval logic may evolve over time / 检索策略可能迭代升级
 
-Supports incremental development & debugging / 支持迭代开发与调试
+Useful for debugging, migration, and incremental development / 便于调试、迁移和迭代开发
 
+How reconstruction works / 索引重构如何工作
 
-How it works / 工作机制
+Each chunk uses a stable ID: fileId:chunkIndex / 每个 chunk 使用稳定 ID：fileId:chunkIndex
 
-Each chunk uses a stable ID: fileId:chunkIndex
+Reconstructing the same source overwrites existing indexed chunks / 对同一来源重构时覆盖已有索引数据
 
-Reindexing overwrites existing chunks, does not create duplicates
+No duplicate chunks are created / 不会产生重复 chunk
 
-The operation is idempotent
+The operation remains idempotent / 整体操作保持幂等
 
-每个 chunk 使用稳定 ID：fileId:chunkIndex
-重建同一文件时覆盖旧数据，不会重复写入
-整体操作幂等，可重复执行
+This mirrors a production-grade retrieval pipeline where index state can be rebuilt safely from source documents.
+这对应生产级检索系统中的常见做法：索引状态可以基于源文档安全恢复与重建。
 
+🔀 Hybrid Retrieval Support / 混合检索支持
+
+This project is designed for hybrid retrieval workflows.
+The current demo focuses on searchable document indexing while preserving the design needed for combining keyword-based retrieval and vector-based retrieval.
+
+本项目按混合检索工作流进行设计。
+当前 Demo 聚焦于可运行的文档索引与搜索闭环，同时保留了关键词检索与向量检索结合所需的结构设计。
+
+Hybrid retrieval design can support:
+
+Keyword-based search / 关键词检索
+
+Vector-based semantic retrieval / 基于语义的向量检索
+
+Combined ranking strategies / 组合式排序策略
+
+Future reranking integration / 后续重排能力扩展
 
 🧠 Engineering Highlights / 工程亮点
+
+Hybrid indexing design / 混合索引设计
 
 OpenSearch bulk indexing / OpenSearch 批量写入
 
 Chunk-level search with highlight / chunk 粒度检索 + 高亮
 
-Idempotent index rebuild / 幂等重建索引
+Safe index rebuild and reconstruction / 安全索引重建与索引重构
 
 Fully containerized demo / 全容器化可运行
 
 Zero local environment dependency / 本地零环境依赖
 
-This repository focuses on clarity, portability, and system design, rather than framework or business complexity.
-本仓库强调清晰、可移植、可复现的系统设计，而非框架堆叠或业务复杂度。
-
+This repository focuses on clarity, portability, and retrieval system design, rather than framework or business complexity.
+本仓库强调清晰、可移植、可复现的检索系统设计，而非框架堆叠或业务复杂度。
 
 📊 OpenSearch Dashboards / 可视化界面
 
@@ -196,10 +218,11 @@ Indexed chunks / 已写入的 chunk 文档
 
 Query behavior / 查询与高亮效果
 
+Rebuilt index state / 重建后的索引状态
 
 📦 Project Structure (Demo) / 项目结构（Demo）
 ```
-kb-portfolio/
+rag-hybrid-retrieval-demo/
 
 demo/
 
@@ -215,18 +238,20 @@ requirements.txt
 
 demo.txt
 
-src_sanitized/ (Sanitized Java / Python code, design reference)
+src_sanitized/ （Sanitized Java / Python code, design reference）
 
 README.md
 ```
-
 🛡️ Notes / 说明
 
-This repository is intended for portfolio/demo usage.
+This repository is intended for portfolio and demo usage.
 本仓库用于作品集展示与可运行 Demo。
 
-The full system includes VECTOR/HYBRID modes, permissions, job orchestration, etc.
-完整系统包含 VECTOR/HYBRID、权限、任务编排等能力；此仓库聚焦 TEXT 可复现闭环。
+The full system design includes TEXT, VECTOR, and HYBRID retrieval modes, along with extensible indexing and reconstruction workflows.
+完整系统设计包含 TEXT、VECTOR、HYBRID 检索模式，并支持可扩展的索引与重构流程。
+
+This demo focuses on a clean and reproducible retrieval pipeline while preserving a realistic hybrid-retrieval architecture.
+本 Demo 聚焦于干净、可复现的检索闭环，同时保留真实混合检索系统的架构设计。
 
 Contributions and issues are welcome.
 欢迎提 issue 或 PR。
