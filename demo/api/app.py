@@ -14,6 +14,7 @@ from docx import Document
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 UPLOAD_DIR = DATA_DIR / "uploads"
 META_PATH = DATA_DIR / "meta.json"
+CONFIG_PATH = DATA_DIR / "config.json"
 
 OPENSEARCH_URL = os.getenv("OPENSEARCH_URL", "http://opensearch:9200")
 INDEX_NAME = os.getenv("OPENSEARCH_INDEX", "kb_demo_chunks")
@@ -28,7 +29,15 @@ def ensure_dirs() -> None:
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     if not META_PATH.exists():
         META_PATH.write_text(json.dumps({"files": []}, ensure_ascii=False, indent=2), encoding="utf-8")
-
+    if not CONFIG_PATH.exists():
+        CONFIG_PATH.write_text(
+            json.dumps(
+                {"indexMode": "TEXT", "configText": "{}", "vectorIndexConfig": "{}"},
+                ensure_ascii=False,
+                indent=2
+            ),
+            encoding="utf-8"
+        )
 
 def load_meta() -> Dict[str, Any]:
     ensure_dirs()
@@ -38,6 +47,12 @@ def load_meta() -> Dict[str, Any]:
 def save_meta(meta: Dict[str, Any]) -> None:
     META_PATH.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
+def load_config() -> Dict[str, Any]:
+    ensure_dirs()
+    return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+
+def save_config(cfg: Dict[str, Any]) -> None:
+    CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
 
 def connect_os() -> OpenSearch:
     # OpenSearch security plugin disabled in compose, so no auth.
@@ -140,6 +155,34 @@ async def upload(file: UploadFile = File(...)):
 
     return {"fileId": file_id, "filename": safe_name}
 
+@app.get("/index/config")
+def get_index_config():
+    return load_config()
+
+@app.post("/index/config")
+def set_index_config(body: Dict[str, Any]):
+    """
+    body example:
+    {
+      "indexMode": "TEXT" | "VECTOR" | "HYBRID",
+      "configText": "{}",
+      "vectorIndexConfig": "{}"
+    }
+    """
+    cfg = load_config()
+    mode = (body.get("indexMode") or cfg.get("indexMode") or "TEXT").upper()
+
+    if mode not in ["TEXT", "VECTOR", "HYBRID"]:
+        raise HTTPException(status_code=400, detail="indexMode must be TEXT | VECTOR | HYBRID")
+
+    cfg["indexMode"] = mode
+    if "configText" in body:
+        cfg["configText"] = body["configText"]
+    if "vectorIndexConfig" in body:
+        cfg["vectorIndexConfig"] = body["vectorIndexConfig"]
+
+    save_config(cfg)
+    return {"ok": True, "config": cfg}
 
 @app.post("/reindex")
 def reindex(fileId: Optional[str] = None):
@@ -193,6 +236,35 @@ def reindex(fileId: Optional[str] = None):
     client.indices.refresh(index=INDEX_NAME)
     return {"ok": True, "indexedChunks": total_chunks, "index": INDEX_NAME}
 
+def vector_rebuild_stub(fileId: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Demo placeholder:
+    - In full system, this would call a vector service (embedding + upsert).
+    - Here we just return a stub response so the mode switch is demonstrable.
+    """
+    return {"ok": True, "mode": "VECTOR", "message": "vector rebuild is stubbed in demo", "fileId": fileId}
+
+
+@app.post("/index/rebuild")
+def index_rebuild(fileId: Optional[str] = None):
+    """
+    Rebuild/reconstruct index by indexMode:
+    - TEXT   -> OpenSearch full-text reindex (existing /reindex)
+    - VECTOR -> vector rebuild (stub in demo)
+    - HYBRID -> both
+    """
+    cfg = load_config()
+    mode = (cfg.get("indexMode") or "TEXT").upper()
+
+    out = {"ok": True, "indexMode": mode, "steps": {}}
+
+    if mode in ["TEXT", "HYBRID"]:
+        out["steps"]["text"] = reindex(fileId=fileId)
+
+    if mode in ["VECTOR", "HYBRID"]:
+        out["steps"]["vector"] = vector_rebuild_stub(fileId=fileId)
+
+    return out
 
 @app.get("/search")
 def search(q: str = Query(..., min_length=1), topK: int = Query(10, ge=1, le=50)):
