@@ -141,6 +141,77 @@ Example response / 返回示例：
 ]
 }
 ```
+5) Index Mode Switching / 索引模式切换
+
+This demo now supports index mode configuration to better reflect real RAG retrieval systems:
+
+TEXT: full-text retrieval via OpenSearch (BM25-style)
+
+VECTOR: vector indexing pipeline (pluggable in demo)
+
+HYBRID: combined workflow (TEXT + VECTOR)
+
+本 Demo 现已支持索引模式配置，更贴近真实 RAG 检索系统：
+
+TEXT：OpenSearch 全文检索（BM25 风格）
+
+VECTOR：向量索引流程（Demo 中为可插拔/占位）
+
+HYBRID：混合流程（TEXT + VECTOR 组合）
+
+API:
+
+GET /index/config — view current index config / 查看当前索引配置
+
+POST /index/config — update indexMode/config / 更新索引模式与配置
+
+Example / 示例（PowerShell 推荐写法）：
+
+Set mode to HYBRID / 设置为 HYBRID：
+```
+$body = @{ indexMode = "HYBRID" } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/index/config
+" -ContentType "application/json" -Body $body
+```
+View config / 查看配置：
+```
+curl.exe "http://localhost:8080/index/config
+```
+6) Index Rebuild & Reconstruction Dispatcher / 索引重建与重构分发
+
+A unified rebuild endpoint is provided to reconstruct index state deterministically from source documents.
+
+TEXT: rebuild OpenSearch index entries
+
+VECTOR: trigger vector upsert pipeline (demo placeholder)
+
+HYBRID: execute both steps
+
+提供统一的“索引重构”入口，可基于源文档稳定重建索引状态。
+
+TEXT：重建 OpenSearch 文本索引
+
+VECTOR：触发向量 upsert 流程（Demo 占位）
+
+HYBRID：两者都执行
+
+API:
+
+POST /index/rebuild — rebuild/reconstruct by current indexMode / 按当前 indexMode 执行重建/重构
+
+Optional: ?fileId=xxx to rebuild a single file / 可选参数 fileId，仅重构单个文件
+
+Examples / 示例：
+
+Rebuild by mode / 按模式重构：
+```
+curl.exe -X POST "http://localhost:8080/index/rebuild
+```
+
+Rebuild a single file / 重构单个文件：
+```
+curl.exe -X POST "http://localhost:8080/index/rebuild?fileId=YOUR_FILE_ID
+```
 
 🔄 Index Reconstruction / 索引重构设计说明
 
