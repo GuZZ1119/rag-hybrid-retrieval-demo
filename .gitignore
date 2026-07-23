@@ -23,6 +23,8 @@ __pycache__/
 venv/
 .env
 .env.*
+!.env.example
+!**/.env.example
 pip-wheel-metadata/
 
 # Node
@@ -49,6 +51,8 @@ minio-data/
 # Secrets / configs (keep only *.example)
 application-*.yml
 application-*.yaml
+!**/*.example.yml
+!**/*.example.yaml
 application.yml
 application.yaml
 *.properties

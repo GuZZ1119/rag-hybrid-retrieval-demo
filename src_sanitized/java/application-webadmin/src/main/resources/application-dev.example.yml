@@ -1,0 +1,70 @@
+spring:
+  datasource:
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      main:
+        url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+        username: ${DB_USER}
+        password: ${DB_PASSWORD}
+      operation-log:
+        url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}
+        username: ${DB_USER}
+        password: ${DB_PASSWORD}
+      global-dict:
+        url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}
+        username: ${DB_USER}
+        password: ${DB_PASSWORD}
+      common-flow-online:
+        url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}
+        username: ${DB_USER}
+        password: ${DB_PASSWORD}
+      driverClassName: com.mysql.cj.jdbc.Driver
+
+application:
+  defaultUserPassword: ${DEFAULT_USER_PASSWORD}
+  uploadFileBaseDir: ./upload-files/app
+  credentialIpList: "*"
+  sessionExpiredSeconds: 86400
+  excludeLogin: false
+
+third-party:
+  auth:
+    - appCode: example-app
+      baseUrl: http://localhost:8080/example
+      tokenHeaderKey: Authorization
+      tokenExpiredSeconds: 60
+      permExpiredSeconds: 86400
+
+common-redis:
+  redisson:
+    mode: single
+    address: redis://${REDIS_HOST}:${REDIS_PORT}
+    password: ${REDIS_PASSWORD}
+    database: 0
+
+sa-token:
+  token-name: Authorization
+  timeout: ${application.sessionExpiredSeconds}
+  is-read-header: true
+  is-read-cookie: false
+  alone-redis:
+    host: ${REDIS_HOST}
+    port: ${REDIS_PORT}
+    password: ${REDIS_PASSWORD}
+
+kb:
+  storage:
+    # KB 本地文件根目录（LOCAL 模式）
+    localBaseDir: ${KB_STORAGE_BASE_DIR}
+  search:
+    engine: opensearch
+  opensearch:
+    url: http://${OPENSEARCH_HOST}:${OPENSEARCH_PORT}
+    index: ic_kb_chunk_idx
+  vector:
+    payload:
+      maxChunks: 300
+      maxChars: 300000
+      strategy: TRUNCATE
+    baseUrl: http://${VECTOR_SERVICE_HOST}:${VECTOR_SERVICE_PORT}
+    reindexFilePath: /kb/vector/reindexFile
