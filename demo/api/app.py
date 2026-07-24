@@ -19,8 +19,37 @@ CONFIG_PATH = DATA_DIR / "config.json"
 OPENSEARCH_URL = os.getenv("OPENSEARCH_URL", "http://opensearch:9200")
 INDEX_NAME = os.getenv("OPENSEARCH_INDEX", "kb_demo_chunks")
 
-CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "800"))
-CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "120"))
+SUPPORTED_SUFFIXES = {".txt", ".md", ".log", ".pdf", ".docx"}
+
+
+def read_positive_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name, str(default))
+    try:
+        value = int(raw)
+    except ValueError as e:
+        raise RuntimeError(f"{name} must be an integer") from e
+    if value <= 0:
+        raise RuntimeError(f"{name} must be greater than 0")
+    return value
+
+
+def read_non_negative_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name, str(default))
+    try:
+        value = int(raw)
+    except ValueError as e:
+        raise RuntimeError(f"{name} must be an integer") from e
+    if value < 0:
+        raise RuntimeError(f"{name} must be greater than or equal to 0")
+    return value
+
+
+CHUNK_SIZE = read_positive_int_env("CHUNK_SIZE", 800)
+CHUNK_OVERLAP = read_non_negative_int_env("CHUNK_OVERLAP", 120)
+MAX_UPLOAD_BYTES = read_positive_int_env("MAX_UPLOAD_BYTES", 10 * 1024 * 1024)
+
+if CHUNK_OVERLAP >= CHUNK_SIZE:
+    raise RuntimeError("CHUNK_OVERLAP must be smaller than CHUNK_SIZE")
 
 app = FastAPI(title="KB Demo API (Sanitized)", version="0.1.0")
 
@@ -77,6 +106,26 @@ def create_index_if_needed(client: OpenSearch) -> None:
     client.indices.create(index=INDEX_NAME, body=body)
 
 
+def delete_chunks_for_file_ids(client: OpenSearch, file_ids: List[str]) -> int:
+    if not file_ids:
+        return 0
+
+    body = {
+        "query": {
+            "terms": {
+                "fileId": file_ids
+            }
+        }
+    }
+    resp = client.delete_by_query(
+        index=INDEX_NAME,
+        body=body,
+        conflicts="proceed",
+        refresh=True,
+    )
+    return int(resp.get("deleted", 0))
+
+
 def clean_text(s: str) -> str:
     s = s.replace("\x00", " ")
     s = re.sub(r"[ \t]+", " ", s)
@@ -85,6 +134,13 @@ def clean_text(s: str) -> str:
 
 
 def split_chunks(text: str, chunk_size: int, overlap: int) -> List[str]:
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be greater than 0")
+    if overlap < 0:
+        raise ValueError("overlap must be greater than or equal to 0")
+    if overlap >= chunk_size:
+        raise ValueError("overlap must be smaller than chunk_size")
+
     text = text.strip()
     if not text:
         return []
@@ -117,8 +173,13 @@ def extract_text(file_path: Path) -> str:
         doc = Document(str(file_path))
         return "\n".join([p.text for p in doc.paragraphs])
 
-    # fallback: try read as text
-    return file_path.read_text(encoding="utf-8", errors="ignore")
+    raise HTTPException(status_code=400, detail=f"unsupported file type: {suffix}")
+
+
+def content_preview(content: str, limit: int = 160) -> str:
+    if len(content) <= limit:
+        return content
+    return content[:limit] + "..."
 
 
 @app.get("/health")
@@ -141,11 +202,18 @@ async def upload(file: UploadFile = File(...)):
 
     file_id = str(uuid.uuid4())
     safe_name = Path(file.filename).name
+    suffix = Path(safe_name).suffix.lower()
+    if suffix not in SUPPORTED_SUFFIXES:
+        allowed = ", ".join(sorted(SUPPORTED_SUFFIXES))
+        raise HTTPException(status_code=400, detail=f"unsupported file type: {suffix}; allowed: {allowed}")
+
     dst = UPLOAD_DIR / f"{file_id}__{safe_name}"
 
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="empty file")
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"file too large; max bytes: {MAX_UPLOAD_BYTES}")
 
     dst.write_bytes(content)
 
@@ -201,6 +269,9 @@ def reindex(fileId: Optional[str] = None):
         if not files:
             raise HTTPException(status_code=404, detail=f"fileId not found: {fileId}")
 
+    rebuild_file_ids = [str(f.get("fileId")) for f in files if f.get("fileId")]
+    deleted_chunks = delete_chunks_for_file_ids(client, rebuild_file_ids)
+
     # build bulk actions
     bulk_lines: List[str] = []
     total_chunks = 0
@@ -225,7 +296,7 @@ def reindex(fileId: Optional[str] = None):
         total_chunks += len(chunks)
 
     if total_chunks == 0:
-        return {"ok": True, "indexedChunks": 0}
+        return {"ok": True, "indexedChunks": 0, "deletedChunks": deleted_chunks, "index": INDEX_NAME}
 
     payload = "\n".join(bulk_lines) + "\n"
     resp = client.bulk(body=payload, headers={"Content-Type": "application/x-ndjson"})
@@ -234,7 +305,7 @@ def reindex(fileId: Optional[str] = None):
         raise HTTPException(status_code=500, detail="bulk index returned errors=true")
 
     client.indices.refresh(index=INDEX_NAME)
-    return {"ok": True, "indexedChunks": total_chunks, "index": INDEX_NAME}
+    return {"ok": True, "indexedChunks": total_chunks, "deletedChunks": deleted_chunks, "index": INDEX_NAME}
 
 def vector_rebuild_stub(fileId: Optional[str] = None) -> Dict[str, Any]:
     """
@@ -285,16 +356,20 @@ def search(q: str = Query(..., min_length=1), topK: int = Query(10, ge=1, le=50)
     resp = client.search(index=INDEX_NAME, body=body)
     hits = resp.get("hits", {}).get("hits", [])
     results = []
-    for h in hits:
+    for rank, h in enumerate(hits, start=1):
         src = h.get("_source", {})
         hl = h.get("highlight", {}).get("content", [])
+        content = src.get("content", "") or ""
         results.append({
+            "rank": rank,
             "fileId": src.get("fileId"),
             "filename": src.get("filename"),
+            "chunkId": src.get("chunkId"),
             "chunkIndex": src.get("chunkIndex"),
             "score": h.get("_score"),
             "highlight": hl[0] if hl else None,
-            "contentPreview": (src.get("content", "")[:160] + "...") if src.get("content") else "",
+            "content": content,
+            "contentPreview": content_preview(content),
         })
 
-    return {"q": q, "count": len(results), "results": results}
+    return {"q": q, "mode": "TEXT", "topK": topK, "count": len(results), "results": results}
