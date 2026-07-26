@@ -14,6 +14,12 @@ The expected final behavior is:
 4. The system returns ranked chunks and, when enabled, a RAG answer with citations.
 5. Retrieval quality can be backtested with a fixed evaluation set before and after each retrieval change.
 
+The retrieval design should use three complementary kinds of evidence:
+
+- BM25 for exact enterprise terms, codes, and names,
+- vector retrieval for semantic similarity and paraphrased questions,
+- an evidence graph for entity relationships and short multi-hop questions.
+
 The project should remain suitable for a personal portfolio project. It should not try to become Dify, RAGFlow, LlamaIndex, or Haystack. Instead, it should borrow their core RAG ideas and implement the minimum complete path for this project's scenario.
 
 ## 2. Current Problems
@@ -91,6 +97,7 @@ The upgraded project should support:
 - real vector indexing and vector retrieval,
 - hybrid retrieval with explainable score fusion,
 - optional reranking,
+- evidence-graph retrieval for relationship questions,
 - answer generation with citations,
 - no-answer behavior when retrieved evidence is weak.
 
@@ -127,6 +134,56 @@ To keep the project achievable:
 - Keep the first evaluation set small, around 20 to 50 questions.
 - Keep LLM answer generation optional through environment variables.
 - Prefer transparent code over a heavy framework wrapper.
+- Add Neo4j only for the evidence-graph phase; keep OpenSearch responsible for text and vector search.
+- Start graph retrieval with entity expansion of one or two hops. Community summaries, global graph search, and automatic graph editing are out of scope for the first version.
+
+### 3.4 Evidence-First Graph-Hybrid Retrieval
+
+The project should not treat a graph database as a replacement for vector retrieval. It should use a small, source-grounded graph as a third candidate generator:
+
+```text
+query
+  -> BM25 candidates: exact keywords and identifiers
+  -> vector candidates: semantic similarity
+  -> route decision
+       -> direct fusion when both candidate lists agree
+       -> graph expansion when they disagree or the query contains multiple entities
+  -> rerank evidence chunks
+  -> answer with source citations
+```
+
+Graph responsibilities:
+
+- represent `Document -> Chunk -> Entity` links,
+- represent `Entity -[relation]-> Entity` links,
+- expand a query entity by one or two hops for relationship and cross-document questions,
+- return associated source chunks as retrieval evidence.
+
+Vector responsibilities:
+
+- find chunks that express the same meaning with different wording,
+- handle natural-language questions that do not use the exact enterprise terminology,
+- provide a semantic candidate list even when entity extraction is incomplete.
+
+Every graph relation must preserve `sourceChunkId`, extraction confidence, extraction model, and graph version. The graph is therefore an evidence index, not an unsupported collection of facts. The final answer must cite original chunks, never a graph edge alone.
+
+The first routing rule should be deliberately simple and measurable:
+
+1. Run BM25 and vector retrieval in parallel.
+2. Calculate overlap between their top candidates and inspect whether the query has multiple recognized entities.
+3. If candidates agree and the top result is strong, fuse and rerank directly.
+4. If candidates disagree or the query is relation-oriented, expand query entities in the graph, collect linked chunks, then fuse and rerank all candidates.
+
+This is the project's small innovation: graph retrieval is conditional and evidence-first, rather than an expensive default path for every query.
+
+### 3.5 Controlled Improvement Loop
+
+"Self-evolution" in this project means evaluation-driven improvement, not allowing an LLM to change the graph or retrieval settings without verification.
+
+- Log query type, route decision, candidate ranks, cited chunks, latency, and user feedback.
+- Turn low-confidence answers, no-answer events, and negative feedback into reviewable evaluation candidates.
+- Version chunking, embedding model, fusion weights, extraction prompt, and graph schema.
+- Accept a configuration change only when it improves the fixed evaluation set or when a documented trade-off is accepted.
 
 ## 4. Reference Points from Other RAG Projects
 
@@ -138,6 +195,9 @@ Reference links:
 - Dify: https://github.com/langgenius/dify
 - LlamaIndex: https://github.com/run-llama/llama_index
 - Haystack: https://github.com/deepset-ai/haystack
+- Microsoft GraphRAG: https://github.com/microsoft/graphrag
+- LightRAG: https://github.com/HKUDS/LightRAG
+- HippoRAG: https://github.com/OSU-NLP-Group/HippoRAG
 
 ### RAGFlow
 
@@ -193,6 +253,21 @@ What to adopt here:
 
 - keep the pipeline simple but visible,
 - add tests and evaluation around retrieval before adding more features.
+
+### GraphRAG, LightRAG, and HippoRAG
+
+Useful reference points:
+
+- Microsoft GraphRAG separates graph construction from different query strategies; not every question needs the same retrieval path.
+- LightRAG keeps graph and vector representations complementary and makes retrieval results inspectable.
+- HippoRAG demonstrates that graph traversal can help connect multi-hop evidence across documents.
+
+What to adopt here:
+
+- a small graph containing only source-grounded entities and relations,
+- query-time graph expansion only for queries that need relational evidence,
+- graph candidates merged with keyword and vector candidates rather than replacing them,
+- graph provenance and evaluation before claiming a quality improvement.
 
 ## 5. Ordered Implementation Plan
 
@@ -273,7 +348,28 @@ Acceptance:
 - Hybrid `Recall@5` is equal to or better than BM25 on the evaluation set.
 - The report explains where hybrid helps and where it does not.
 
-### Phase 5: Add a simple RAG answer endpoint
+### Phase 5: Add evidence-first graph retrieval
+
+Goal: add evidence-graph retrieval to the completed hybrid baseline.
+
+Tasks:
+
+1. Add Neo4j to the local Docker Compose setup.
+2. During indexing, extract entities and relations from chunks with a structured, validated output format.
+3. Store `Document`, `Chunk`, and `Entity` nodes plus relations that retain `sourceChunkId` and confidence.
+4. Add entity detection for queries and one- or two-hop graph expansion.
+5. Add the evidence router: run graph expansion only when BM25/vector candidates disagree or a relation query is detected.
+6. Merge graph-derived chunks with text and vector candidates before reranking.
+7. Return `route`, `routeReason`, and an optional evidence path in retrieval debug output.
+
+Acceptance:
+
+- A relationship query can return source chunks connected across documents.
+- A normal keyword question does not pay the graph-query cost when BM25 and vector candidates agree.
+- Every returned graph relation can be traced back to an original chunk.
+- The backtest compares `HYBRID` and `GRAPH_HYBRID` by question type.
+
+### Phase 6: Add a simple RAG answer endpoint
 
 Goal: turn retrieval results into grounded answers.
 
@@ -296,7 +392,7 @@ Acceptance:
 - The system does not invent content when no relevant chunk is found.
 - The answer endpoint can be used by an external agent.
 
-### Phase 6: Add lightweight quality gates
+### Phase 7: Add lightweight quality gates and controlled improvement
 
 Goal: keep the project stable without overbuilding.
 
@@ -305,13 +401,16 @@ Tasks:
 1. Add unit tests for chunking and reindex behavior.
 2. Add API smoke tests for upload, reindex, search, and eval.
 3. Add a GitHub Actions workflow if dependencies remain lightweight.
-4. Add a documented command sequence for local validation.
+4. Record route decision, candidate ranks, cited chunks, and latency for each query.
+5. Add a small review queue format for no-answer events and negative feedback.
+6. Add a documented command sequence for local validation.
 
 Acceptance:
 
 - A contributor can run tests and eval locally.
 - The latest metric table is visible in README or `eval/reports/latest.md`.
 - Future retrieval changes are evaluated against the same questions.
+- Retrieval configuration changes are compared against the prior metric report before being accepted.
 
 ## 6. Suggested Milestones
 
@@ -343,7 +442,17 @@ Deliverables:
 - retrieval comparison table,
 - documented cases where hybrid improves keyword-only search.
 
-### Milestone 4: Agent-ready RAG answer
+### Milestone 4: Evidence-first graph retrieval
+
+Deliverables:
+
+- Neo4j evidence graph,
+- conditional graph routing,
+- one- or two-hop entity expansion,
+- graph-source provenance,
+- `HYBRID` vs `GRAPH_HYBRID` comparison report.
+
+### Milestone 5: Agent-ready RAG answer
 
 Deliverables:
 
@@ -358,6 +467,7 @@ The project can be considered complete for the current portfolio goal when:
 
 - it can ingest files and rebuild indexes locally,
 - it supports TEXT, VECTOR, and HYBRID retrieval as real paths,
+- it conditionally uses a source-grounded graph for relationship questions,
 - it can answer questions using retrieved evidence,
 - answers include citations,
 - retrieval backtesting is repeatable,
@@ -374,5 +484,7 @@ The project should not try to implement these in the first complete version:
 - full observability stack,
 - many vector database backends,
 - advanced agent planning.
+- automatic graph mutation based only on model output or user feedback,
+- global community summaries and large-corpus GraphRAG indexing.
 
 These are valuable in larger products, but they would distract from the main goal: a small, complete, measurable RAG system for enterprise file lookup.
