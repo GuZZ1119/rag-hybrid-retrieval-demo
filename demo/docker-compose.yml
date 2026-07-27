@@ -35,8 +35,8 @@
 
   kb-api:
     build:
-      context: ./api
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: demo/api/Dockerfile
     container_name: kb-api
     environment:
       - OPENSEARCH_URL=http://opensearch:9200
@@ -46,6 +46,7 @@
       - DATA_DIR=/data
     volumes:
       - kb-data:/data
+      - ../eval:/app/eval
     ports:
       - "8080:8080"
     depends_on:

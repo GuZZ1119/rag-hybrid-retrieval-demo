@@ -259,6 +259,36 @@ Combined ranking strategies / 组合式排序策略
 
 Future reranking integration / 后续重排能力扩展
 
+## Retrieval Evaluation / 检索回测
+
+The repository includes a small fixed evaluation set for measuring retrieval changes before vector, hybrid, or graph retrieval is introduced. The current baseline evaluates the `TEXT` search path.
+
+仓库提供一套小型固定题集，用于在引入向量、混合检索或图谱检索前后比较检索质量。当前基线评测的是 `TEXT` 搜索路径。
+
+From the `demo` directory, run:
+
+```bash
+docker compose exec kb-api python /app/eval/run_retrieval_eval.py --bootstrap
+```
+
+`--bootstrap` uploads any missing fixture documents, rebuilds the demo index, runs the 12 evaluation cases, and writes the Markdown report to `eval/reports/latest.md`.
+
+The report includes:
+
+- `Recall@3` and `Recall@5` for evidence retrieval,
+- `MRR@10` for ranking quality,
+- a negative-query no-result rate,
+- failed queries with their returned chunks.
+
+Validate the dataset and evaluation logic without starting Docker:
+
+```bash
+python eval/run_retrieval_eval.py --validate-only
+python eval/eval_smoke_test.py
+```
+
+The fixtures are intentionally synthetic and should be used with a clean demo data volume, not a real knowledge base. The initial goal is a stable BM25 reference point; future `VECTOR`, `HYBRID`, and `GRAPH_HYBRID` modes should run against the same dataset and report format.
+
 🧠 Engineering Highlights / 工程亮点
 
 Hybrid indexing design / 混合索引设计

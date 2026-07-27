@@ -29,3 +29,21 @@ jobs:
 
       - name: Run smoke test
         run: python smoke_test.py
+
+  retrieval-eval-data:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate evaluation dataset and metric logic
+        run: |
+          python -m py_compile eval/run_retrieval_eval.py eval/eval_smoke_test.py
+          python eval/run_retrieval_eval.py --validate-only
+          python eval/eval_smoke_test.py
