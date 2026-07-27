@@ -79,6 +79,10 @@ async def test_upload_and_config(kb):
     assert meta["files"][0]["filename"] == "kb.txt"
     assert Path(meta["files"][0]["path"]).exists()
 
+    files = kb.list_files()
+    assert files["count"] == 1
+    assert files["files"] == [{"fileId": uploaded["fileId"], "filename": "kb.txt"}]
+
     await assert_raises_http_async(400, kb.upload, FakeUploadFile("bad.exe", b"content"))
     await assert_raises_http_async(413, kb.upload, FakeUploadFile("large.txt", b"x" * 65))
 

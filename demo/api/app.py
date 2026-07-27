@@ -223,6 +223,19 @@ async def upload(file: UploadFile = File(...)):
 
     return {"fileId": file_id, "filename": safe_name}
 
+
+@app.get("/files")
+def list_files():
+    files = load_meta().get("files", [])
+    return {
+        "count": len(files),
+        "files": [
+            {"fileId": f.get("fileId"), "filename": f.get("filename")}
+            for f in files
+        ],
+    }
+
+
 @app.get("/index/config")
 def get_index_config():
     return load_config()
