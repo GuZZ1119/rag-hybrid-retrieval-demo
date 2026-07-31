@@ -11,7 +11,7 @@ import run_retrieval_eval as evaluator
 
 def main() -> None:
     items = evaluator.load_dataset(evaluator.DEFAULT_DATASET)
-    assert len(items) == 12
+    assert len(items) == 18
     assert {item["category"] for item in items} == {"keyword", "paraphrase", "relationship", "negative"}
 
     positive = next(item for item in items if item["id"] == "incident-p1-escalation")

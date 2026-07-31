@@ -2,6 +2,15 @@
 
 This file records project delivery commits with the date and the completed work. Add a new entry whenever a project change is pushed.
 
+## 2026-07-31 23:17 AEST
+
+- Added executable `HYBRID` search: BM25 and vector candidates are fused with Reciprocal Rank Fusion (RRF) instead of comparing raw scores.
+- Added response-level evidence fields (`textRank`, `vectorRank`, source scores, and `fusionScore`) plus configurable candidate depth and RRF constant.
+- Expanded the golden set from 12 to 18 cases with paraphrase, relationship, and negative queries.
+- Completed same-set Docker baselines: TEXT `MRR@10=1.000`, VECTOR `MRR@10=0.938`, and HYBRID `MRR@10=1.000`; all three reached `Recall@3=100%` and `Recall@5=100%`.
+- Negative no-result rate remains `0.0%` for all modes because this stage does not yet include a no-answer threshold; that is a known follow-up rather than a hidden limitation.
+- Added a persistent Hugging Face model cache volume and hybrid fusion smoke coverage.
+
 ## 2026-07-31 22:39 AEST
 
 - Real vector retrieval: added a local multilingual embedding provider, OpenSearch `knn_vector` indexing, `mode=VECTOR` search, and vector evaluation support.

@@ -111,6 +111,25 @@ def test_vector_helpers(kb):
     assert_raises_http(500, kb.embed_texts, ["wrong dimension"])
 
 
+def test_hybrid_fusion(kb):
+    def hit(chunk_id, score):
+        return {
+            "_id": chunk_id,
+            "_score": score,
+            "_source": {"chunkId": chunk_id, "content": f"content for {chunk_id}"},
+        }
+
+    fused = kb.fuse_ranked_hits(
+        [hit("text-only", 10.0), hit("shared", 9.0)],
+        [hit("shared", 0.8), hit("vector-only", 0.7)],
+        top_k=2,
+    )
+    assert [candidate["hit"]["_source"]["chunkId"] for candidate in fused] == ["shared", "text-only"]
+    assert fused[0]["textRank"] == 2
+    assert fused[0]["vectorRank"] == 1
+    assert fused[0]["fusionScore"] > fused[1]["fusionScore"]
+
+
 async def test_upload_and_config(kb):
     uploaded = await kb.upload(FakeUploadFile("../kb.txt", b"hello world"))
     assert uploaded["filename"] == "kb.txt"
@@ -140,6 +159,7 @@ async def main():
         test_text_helpers(kb)
         test_extract_text(kb, temp_dir)
         test_vector_helpers(kb)
+        test_hybrid_fusion(kb)
         await test_upload_and_config(kb)
     finally:
         temp_dir.cleanup()

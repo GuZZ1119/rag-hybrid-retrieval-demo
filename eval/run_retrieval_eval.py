@@ -228,7 +228,7 @@ def main() -> int:
     parser.add_argument("--fixture-dir", type=Path, default=DEFAULT_FIXTURE_DIR, help="Fixture documents directory.")
     parser.add_argument("--output", type=Path, default=DEFAULT_REPORT, help="Markdown report output path.")
     parser.add_argument("--top-k", type=int, default=10, choices=range(1, 51), metavar="1..50", help="Search candidate depth.")
-    parser.add_argument("--mode", choices=["TEXT", "VECTOR"], default="TEXT", help="Retrieval path to evaluate.")
+    parser.add_argument("--mode", choices=["TEXT", "VECTOR", "HYBRID"], default="TEXT", help="Retrieval path to evaluate.")
     parser.add_argument(
         "--request-timeout",
         type=int,

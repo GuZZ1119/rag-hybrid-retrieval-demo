@@ -10,3 +10,9 @@
 {"id":"remote-access","category":"keyword","query":"远程访问公司资源需要什么安全措施？","expected_file":"remote_work_policy.txt","expected_terms":["VPN","多因素认证"]}
 {"id":"remote-personal-device","category":"keyword","query":"个人电脑能处理客户数据吗？","expected_file":"remote_work_policy.txt","expected_terms":["个人设备","客户数据"]}
 {"id":"negative-cafeteria","category":"negative","query":"公司食堂补贴标准是什么？","expected_file":null,"expected_terms":[]}
+{"id":"procurement-approval-paraphrase","category":"paraphrase","query":"大额采购找谁点头？","expected_file":"procurement_policy.txt","expected_terms":["5000","部门负责人"]}
+{"id":"reimbursement-deadline-paraphrase","category":"paraphrase","query":"费用报销过了一个月还能交吗？","expected_file":"reimbursement_policy.txt","expected_terms":["30","发票"]}
+{"id":"incident-severity-paraphrase","category":"paraphrase","query":"核心业务大面积不可用属于哪一级故障？","expected_file":"incident_response_guide.txt","expected_terms":["P1","核心业务"]}
+{"id":"remote-access-paraphrase","category":"paraphrase","query":"在家连内部系统怎么做身份验证？","expected_file":"remote_work_policy.txt","expected_terms":["VPN","多因素认证"]}
+{"id":"reimbursement-procurement-sequence","category":"relationship","query":"采购费用为什么要先走审批再申请报销？","expected_file":"reimbursement_policy.txt","expected_terms":["采购申请","报销"]}
+{"id":"negative-gym-benefit","category":"negative","query":"公司是否提供健身房补贴？","expected_file":null,"expected_terms":[]}

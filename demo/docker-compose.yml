@@ -47,9 +47,12 @@
       - EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
       - EMBEDDING_DIMENSION=384
       - EMBEDDING_DEVICE=cpu
+      - HYBRID_CANDIDATE_K=20
+      - HYBRID_RRF_K=60
       - DATA_DIR=/data
     volumes:
       - kb-data:/data
+      - hf-model-cache:/root/.cache/huggingface
       - ../eval:/app/eval
     ports:
       - "8080:8080"
@@ -60,3 +63,4 @@
 volumes:
   opensearch-data:
   kb-data:
+  hf-model-cache:

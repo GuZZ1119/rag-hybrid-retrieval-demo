@@ -60,6 +60,8 @@ EMBEDDING_MODEL = os.getenv(
 )
 EMBEDDING_DIMENSION = read_positive_int_env("EMBEDDING_DIMENSION", 384)
 EMBEDDING_DEVICE = os.getenv("EMBEDDING_DEVICE", "cpu")
+HYBRID_CANDIDATE_K = read_positive_int_env("HYBRID_CANDIDATE_K", 20)
+HYBRID_RRF_K = read_non_negative_int_env("HYBRID_RRF_K", 60)
 
 app = FastAPI(title="KB Demo API (Sanitized)", version="0.1.0")
 embedding_provider: Optional[EmbeddingProvider] = None
@@ -246,6 +248,107 @@ def content_preview(content: str, limit: int = 160) -> str:
     if len(content) <= limit:
         return content
     return content[:limit] + "..."
+
+
+def text_search_body(query: str, size: int) -> Dict[str, Any]:
+    return {
+        "size": size,
+        "query": {"match": {"content": query}},
+        "highlight": {
+            "fields": {"content": {}},
+            "pre_tags": ["<em>"],
+            "post_tags": ["</em>"],
+        },
+    }
+
+
+def vector_search_body(query_vector: List[float], size: int) -> Dict[str, Any]:
+    return {
+        "size": size,
+        "query": {
+            "knn": {
+                "contentVector": {
+                    "vector": query_vector,
+                    "k": size,
+                }
+            }
+        },
+    }
+
+
+def hit_chunk_id(hit: Dict[str, Any]) -> str:
+    source = hit.get("_source", {})
+    return str(source.get("chunkId") or hit.get("_id") or "")
+
+
+def fuse_ranked_hits(
+    text_hits: List[Dict[str, Any]],
+    vector_hits: List[Dict[str, Any]],
+    top_k: int,
+) -> List[Dict[str, Any]]:
+    """Fuse text and vector candidates with reciprocal rank fusion (RRF)."""
+    candidates: Dict[str, Dict[str, Any]] = {}
+
+    def add_hits(hits: List[Dict[str, Any]], rank_key: str, score_key: str) -> None:
+        for rank, hit in enumerate(hits, start=1):
+            chunk_id = hit_chunk_id(hit)
+            if not chunk_id:
+                continue
+            candidate = candidates.setdefault(
+                chunk_id,
+                {
+                    "hit": hit,
+                    "textRank": None,
+                    "vectorRank": None,
+                    "textScore": None,
+                    "vectorScore": None,
+                    "fusionScore": 0.0,
+                },
+            )
+            candidate[rank_key] = rank
+            candidate[score_key] = hit.get("_score")
+            candidate["fusionScore"] += 1.0 / (HYBRID_RRF_K + rank)
+
+    add_hits(text_hits, "textRank", "textScore")
+    add_hits(vector_hits, "vectorRank", "vectorScore")
+    return sorted(
+        candidates.values(),
+        key=lambda candidate: (
+            -candidate["fusionScore"],
+            min(rank for rank in [candidate["textRank"], candidate["vectorRank"]] if rank is not None),
+            hit_chunk_id(candidate["hit"]),
+        ),
+    )[:top_k]
+
+
+def format_search_result(
+    hit: Dict[str, Any],
+    rank: int,
+    text_rank: Optional[int] = None,
+    vector_rank: Optional[int] = None,
+    fusion_score: Optional[float] = None,
+    text_score: Optional[float] = None,
+    vector_score: Optional[float] = None,
+) -> Dict[str, Any]:
+    source = hit.get("_source", {})
+    highlight = hit.get("highlight", {}).get("content", [])
+    content = source.get("content", "") or ""
+    return {
+        "rank": rank,
+        "fileId": source.get("fileId"),
+        "filename": source.get("filename"),
+        "chunkId": source.get("chunkId"),
+        "chunkIndex": source.get("chunkIndex"),
+        "score": fusion_score if fusion_score is not None else hit.get("_score"),
+        "textRank": text_rank,
+        "vectorRank": vector_rank,
+        "fusionScore": fusion_score,
+        "textScore": text_score,
+        "vectorScore": vector_score,
+        "highlight": highlight[0] if highlight else None,
+        "content": content,
+        "contentPreview": content_preview(content),
+    }
 
 
 @app.get("/health")
@@ -485,67 +588,57 @@ def search(
 ):
     client = connect_os()
     mode = mode.upper()
-    if mode not in ["TEXT", "VECTOR"]:
-        raise HTTPException(status_code=400, detail="mode must be TEXT or VECTOR; HYBRID is planned")
+    if mode not in ["TEXT", "VECTOR", "HYBRID"]:
+        raise HTTPException(status_code=400, detail="mode must be TEXT | VECTOR | HYBRID")
 
-    if mode == "TEXT":
-        index_name = INDEX_NAME
-    else:
-        index_name = VECTOR_INDEX_NAME
+    required_indexes = [INDEX_NAME] if mode == "TEXT" else [VECTOR_INDEX_NAME]
+    if mode == "HYBRID":
+        required_indexes = [INDEX_NAME, VECTOR_INDEX_NAME]
+    missing_indexes = [index_name for index_name in required_indexes if not client.indices.exists(index_name)]
+    if missing_indexes:
+        raise HTTPException(status_code=404, detail=f"index not found: {', '.join(missing_indexes)}")
 
-    if not client.indices.exists(index_name):
-        raise HTTPException(status_code=404, detail=f"index not found: {index_name}")
-
-    if mode == "TEXT":
-        body = {
-            "size": topK,
-            "query": {"match": {"content": q}},
-            "highlight": {
-                "fields": {"content": {}},
-                "pre_tags": ["<em>"],
-                "post_tags": ["</em>"],
-            },
-        }
-    else:
-        query_vector = embed_texts([q])[0]
-        body = {
-            "size": topK,
-            "query": {
-                "knn": {
-                    "contentVector": {
-                        "vector": query_vector,
-                        "k": topK,
-                    }
-                }
-            },
-        }
-
-    resp = client.search(index=index_name, body=body)
-    hits = resp.get("hits", {}).get("hits", [])
-    results = []
-    for rank, h in enumerate(hits, start=1):
-        src = h.get("_source", {})
-        hl = h.get("highlight", {}).get("content", [])
-        content = src.get("content", "") or ""
-        results.append({
-            "rank": rank,
-            "fileId": src.get("fileId"),
-            "filename": src.get("filename"),
-            "chunkId": src.get("chunkId"),
-            "chunkIndex": src.get("chunkIndex"),
-            "score": h.get("_score"),
-            "textRank": rank if mode == "TEXT" else None,
-            "vectorRank": rank if mode == "VECTOR" else None,
-            "highlight": hl[0] if hl else None,
-            "content": content,
-            "contentPreview": content_preview(content),
-        })
-
-    return {
+    response: Dict[str, Any] = {
         "q": q,
         "mode": mode,
         "topK": topK,
-        "count": len(results),
-        "embeddingModel": EMBEDDING_MODEL if mode == "VECTOR" else None,
-        "results": results,
+        "embeddingModel": EMBEDDING_MODEL if mode in ["VECTOR", "HYBRID"] else None,
     }
+    if mode == "TEXT":
+        hits = client.search(index=INDEX_NAME, body=text_search_body(q, topK)).get("hits", {}).get("hits", [])
+        results = [format_search_result(hit, rank, text_rank=rank) for rank, hit in enumerate(hits, start=1)]
+    elif mode == "VECTOR":
+        query_vector = embed_texts([q])[0]
+        hits = client.search(
+            index=VECTOR_INDEX_NAME,
+            body=vector_search_body(query_vector, topK),
+        ).get("hits", {}).get("hits", [])
+        results = [format_search_result(hit, rank, vector_rank=rank) for rank, hit in enumerate(hits, start=1)]
+    else:
+        candidate_k = max(topK, HYBRID_CANDIDATE_K)
+        query_vector = embed_texts([q])[0]
+        text_hits = client.search(
+            index=INDEX_NAME,
+            body=text_search_body(q, candidate_k),
+        ).get("hits", {}).get("hits", [])
+        vector_hits = client.search(
+            index=VECTOR_INDEX_NAME,
+            body=vector_search_body(query_vector, candidate_k),
+        ).get("hits", {}).get("hits", [])
+        fused_candidates = fuse_ranked_hits(text_hits, vector_hits, topK)
+        results = [
+            format_search_result(
+                candidate["hit"],
+                rank,
+                text_rank=candidate["textRank"],
+                vector_rank=candidate["vectorRank"],
+                fusion_score=candidate["fusionScore"],
+                text_score=candidate["textScore"],
+                vector_score=candidate["vectorScore"],
+            )
+            for rank, candidate in enumerate(fused_candidates, start=1)
+        ]
+        response.update({"candidateK": candidate_k, "rrfK": HYBRID_RRF_K})
+
+    response.update({"count": len(results), "results": results})
+    return response

@@ -271,7 +271,7 @@ From the `demo` directory, run:
 docker compose exec kb-api python /app/eval/run_retrieval_eval.py --bootstrap
 ```
 
-`--bootstrap` uploads any missing fixture documents, rebuilds the selected demo index, runs the 12 evaluation cases, and writes the Markdown report to `eval/reports/latest.md`.
+`--bootstrap` uploads any missing fixture documents, rebuilds the selected demo index, runs the fixed golden evaluation cases, and writes the Markdown report to `eval/reports/latest.md`.
 
 The report includes:
 
@@ -316,7 +316,29 @@ curl "http://localhost:8080/search?q=远程访问公司资源需要什么安全�
 curl "http://localhost:8080/search?q=远程访问公司资源需要什么安全措施&mode=VECTOR"
 ```
 
-`/search` returns `textRank` for TEXT results and `vectorRank` plus `embeddingModel` for VECTOR results. `HYBRID` remains the next phase, where both candidate lists will be fused and reranked.
+`/search` returns `textRank` for TEXT results and `vectorRank` plus `embeddingModel` for VECTOR results.
+
+## Hybrid Retrieval / 混合检索
+
+`HYBRID` retrieves candidates from the BM25 and vector indexes independently, then applies Reciprocal Rank Fusion (RRF): `1 / (rrfK + rank)`. This avoids directly comparing incompatible BM25 and vector scores while rewarding evidence returned by both paths.
+
+`HYBRID` 会先从 BM25 与向量索引独立召回候选，再以 Reciprocal Rank Fusion（RRF，`1 / (rrfK + rank)`）融合排序。这样无需直接比较两种不可互换的原始分数，并会优先保留被两条证据路径同时召回的 chunk。
+
+Run the three baselines against the same golden set:
+
+```bash
+docker compose exec kb-api python /app/eval/run_retrieval_eval.py --bootstrap --mode TEXT --output /app/eval/reports/bm25_baseline.md
+docker compose exec kb-api python /app/eval/run_retrieval_eval.py --bootstrap --mode VECTOR --output /app/eval/reports/vector_baseline.md
+docker compose exec kb-api python /app/eval/run_retrieval_eval.py --bootstrap --mode HYBRID --output /app/eval/reports/hybrid_baseline.md
+```
+
+```bash
+curl "http://localhost:8080/search?q=采购费用为什么要先走审批再申请报销？&mode=HYBRID"
+```
+
+Hybrid results expose `textRank`, `vectorRank`, `textScore`, `vectorScore`, and `fusionScore`; `candidateK` and `rrfK` are returned at the response root. The default values are configurable through `HYBRID_CANDIDATE_K=20` and `HYBRID_RRF_K=60`.
+
+混合结果会返回 `textRank`、`vectorRank`、`textScore`、`vectorScore` 与 `fusionScore`，响应根部还会返回 `candidateK` 和 `rrfK`。默认值可通过 `HYBRID_CANDIDATE_K=20` 和 `HYBRID_RRF_K=60` 调整。
 
 🧠 Engineering Highlights / 工程亮点
 
