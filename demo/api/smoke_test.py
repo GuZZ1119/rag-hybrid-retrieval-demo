@@ -17,6 +17,32 @@ class FakeUploadFile:
         return self._content
 
 
+class FakeEmbeddingProvider:
+    def __init__(self, dimension):
+        self.dimension = dimension
+        self.requests = []
+
+    def embed(self, texts):
+        self.requests.append(texts)
+        return [[0.0] * self.dimension for _ in texts]
+
+
+class FakeIndices:
+    def __init__(self):
+        self.created = {}
+
+    def exists(self, _index):
+        return _index in self.created
+
+    def create(self, index, body):
+        self.created[index] = body
+
+
+class FakeOpenSearch:
+    def __init__(self):
+        self.indices = FakeIndices()
+
+
 def load_app_with_temp_data():
     temp_dir = tempfile.TemporaryDirectory()
     os.environ["DATA_DIR"] = temp_dir.name
@@ -69,6 +95,22 @@ def test_extract_text(kb, temp_dir):
     assert_raises_http(400, kb.extract_text, unsupported_path)
 
 
+def test_vector_helpers(kb):
+    client = FakeOpenSearch()
+    kb.create_vector_index_if_needed(client)
+    mapping = client.indices.created[kb.VECTOR_INDEX_NAME]
+    assert mapping["settings"]["index"]["knn"] is True
+    assert mapping["mappings"]["properties"]["contentVector"]["dimension"] == kb.EMBEDDING_DIMENSION
+
+    provider = FakeEmbeddingProvider(kb.EMBEDDING_DIMENSION)
+    kb.embedding_provider = provider
+    assert kb.embed_texts(["semantic query"]) == [[0.0] * kb.EMBEDDING_DIMENSION]
+    assert provider.requests == [["semantic query"]]
+
+    kb.embedding_provider = FakeEmbeddingProvider(kb.EMBEDDING_DIMENSION - 1)
+    assert_raises_http(500, kb.embed_texts, ["wrong dimension"])
+
+
 async def test_upload_and_config(kb):
     uploaded = await kb.upload(FakeUploadFile("../kb.txt", b"hello world"))
     assert uploaded["filename"] == "kb.txt"
@@ -97,6 +139,7 @@ async def main():
     try:
         test_text_helpers(kb)
         test_extract_text(kb, temp_dir)
+        test_vector_helpers(kb)
         await test_upload_and_config(kb)
     finally:
         temp_dir.cleanup()

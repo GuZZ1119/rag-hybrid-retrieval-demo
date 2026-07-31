@@ -7,10 +7,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-COPY demo/api/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+COPY demo/api/requirements.txt demo/api/requirements-vector.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-vector.txt
 
-COPY demo/api/app.py ./app.py
+COPY demo/api/app.py demo/api/embedding.py demo/api/smoke_test.py ./
 COPY eval ./eval
 
 ENV PYTHONUNBUFFERED=1

@@ -10,6 +10,8 @@ from opensearchpy import OpenSearch
 from pypdf import PdfReader
 from docx import Document
 
+from embedding import EmbeddingProvider, SentenceTransformerEmbeddingProvider
+
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 UPLOAD_DIR = DATA_DIR / "uploads"
@@ -18,6 +20,7 @@ CONFIG_PATH = DATA_DIR / "config.json"
 
 OPENSEARCH_URL = os.getenv("OPENSEARCH_URL", "http://opensearch:9200")
 INDEX_NAME = os.getenv("OPENSEARCH_INDEX", "kb_demo_chunks")
+VECTOR_INDEX_NAME = os.getenv("OPENSEARCH_VECTOR_INDEX", "kb_demo_chunks_vector_v1")
 
 SUPPORTED_SUFFIXES = {".txt", ".md", ".log", ".pdf", ".docx"}
 
@@ -51,7 +54,15 @@ MAX_UPLOAD_BYTES = read_positive_int_env("MAX_UPLOAD_BYTES", 10 * 1024 * 1024)
 if CHUNK_OVERLAP >= CHUNK_SIZE:
     raise RuntimeError("CHUNK_OVERLAP must be smaller than CHUNK_SIZE")
 
+EMBEDDING_MODEL = os.getenv(
+    "EMBEDDING_MODEL",
+    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+)
+EMBEDDING_DIMENSION = read_positive_int_env("EMBEDDING_DIMENSION", 384)
+EMBEDDING_DEVICE = os.getenv("EMBEDDING_DEVICE", "cpu")
+
 app = FastAPI(title="KB Demo API (Sanitized)", version="0.1.0")
+embedding_provider: Optional[EmbeddingProvider] = None
 
 
 def ensure_dirs() -> None:
@@ -106,7 +117,32 @@ def create_index_if_needed(client: OpenSearch) -> None:
     client.indices.create(index=INDEX_NAME, body=body)
 
 
-def delete_chunks_for_file_ids(client: OpenSearch, file_ids: List[str]) -> int:
+def create_vector_index_if_needed(client: OpenSearch) -> None:
+    if client.indices.exists(VECTOR_INDEX_NAME):
+        return
+
+    body = {
+        "settings": {"index": {"knn": True}},
+        "mappings": {
+            "properties": {
+                "fileId": {"type": "keyword"},
+                "filename": {"type": "keyword"},
+                "chunkId": {"type": "keyword"},
+                "chunkIndex": {"type": "integer"},
+                "content": {"type": "text"},
+                "embeddingModel": {"type": "keyword"},
+                "contentVector": {
+                    "type": "knn_vector",
+                    "dimension": EMBEDDING_DIMENSION,
+                    "space_type": "l2",
+                },
+            }
+        },
+    }
+    client.indices.create(index=VECTOR_INDEX_NAME, body=body)
+
+
+def delete_chunks_for_file_ids(client: OpenSearch, index_name: str, file_ids: List[str]) -> int:
     if not file_ids:
         return 0
 
@@ -118,12 +154,42 @@ def delete_chunks_for_file_ids(client: OpenSearch, file_ids: List[str]) -> int:
         }
     }
     resp = client.delete_by_query(
-        index=INDEX_NAME,
+        index=index_name,
         body=body,
         conflicts="proceed",
         refresh=True,
     )
     return int(resp.get("deleted", 0))
+
+
+def get_embedding_provider() -> EmbeddingProvider:
+    global embedding_provider
+    if embedding_provider is None:
+        embedding_provider = SentenceTransformerEmbeddingProvider(
+            model_name=EMBEDDING_MODEL,
+            device=EMBEDDING_DEVICE,
+        )
+    return embedding_provider
+
+
+def embed_texts(texts: List[str]) -> List[List[float]]:
+    try:
+        vectors = get_embedding_provider().embed(texts)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+    if len(vectors) != len(texts):
+        raise HTTPException(status_code=500, detail="embedding provider returned an unexpected vector count")
+    for vector in vectors:
+        if len(vector) != EMBEDDING_DIMENSION:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "embedding dimension mismatch; "
+                    f"expected {EMBEDDING_DIMENSION}, got {len(vector)}"
+                ),
+            )
+    return vectors
 
 
 def clean_text(s: str) -> str:
@@ -283,7 +349,7 @@ def reindex(fileId: Optional[str] = None):
             raise HTTPException(status_code=404, detail=f"fileId not found: {fileId}")
 
     rebuild_file_ids = [str(f.get("fileId")) for f in files if f.get("fileId")]
-    deleted_chunks = delete_chunks_for_file_ids(client, rebuild_file_ids)
+    deleted_chunks = delete_chunks_for_file_ids(client, INDEX_NAME, rebuild_file_ids)
 
     # build bulk actions
     bulk_lines: List[str] = []
@@ -320,13 +386,74 @@ def reindex(fileId: Optional[str] = None):
     client.indices.refresh(index=INDEX_NAME)
     return {"ok": True, "indexedChunks": total_chunks, "deletedChunks": deleted_chunks, "index": INDEX_NAME}
 
-def vector_rebuild_stub(fileId: Optional[str] = None) -> Dict[str, Any]:
-    """
-    Demo placeholder:
-    - In full system, this would call a vector service (embedding + upsert).
-    - Here we just return a stub response so the mode switch is demonstrable.
-    """
-    return {"ok": True, "mode": "VECTOR", "message": "vector rebuild is stubbed in demo", "fileId": fileId}
+
+def vector_reindex(fileId: Optional[str] = None):
+    """Build a separate OpenSearch k-NN index from uploaded source files."""
+    ensure_dirs()
+    client = connect_os()
+    create_vector_index_if_needed(client)
+
+    meta = load_meta()
+    files = meta.get("files", [])
+    if fileId:
+        files = [f for f in files if f.get("fileId") == fileId]
+        if not files:
+            raise HTTPException(status_code=404, detail=f"fileId not found: {fileId}")
+
+    rebuild_file_ids = [str(f.get("fileId")) for f in files if f.get("fileId")]
+    deleted_chunks = delete_chunks_for_file_ids(client, VECTOR_INDEX_NAME, rebuild_file_ids)
+
+    chunk_records = []
+    for f in files:
+        path = Path(f["path"])
+        if not path.exists():
+            continue
+        text = clean_text(extract_text(path))
+        for i, content in enumerate(split_chunks(text, CHUNK_SIZE, CHUNK_OVERLAP)):
+            chunk_records.append({
+                "fileId": f["fileId"],
+                "filename": f["filename"],
+                "chunkId": f'{f["fileId"]}:{i}',
+                "chunkIndex": i,
+                "content": content,
+            })
+
+    if not chunk_records:
+        return {
+            "ok": True,
+            "indexedChunks": 0,
+            "deletedChunks": deleted_chunks,
+            "index": VECTOR_INDEX_NAME,
+            "embeddingModel": EMBEDDING_MODEL,
+            "embeddingDimension": EMBEDDING_DIMENSION,
+        }
+
+    vectors = embed_texts([record["content"] for record in chunk_records])
+    bulk_lines: List[str] = []
+    for record, vector in zip(chunk_records, vectors):
+        bulk_lines.append(json.dumps({"index": {"_index": VECTOR_INDEX_NAME, "_id": record["chunkId"]}}, ensure_ascii=False))
+        bulk_lines.append(json.dumps({
+            **record,
+            "embeddingModel": EMBEDDING_MODEL,
+            "contentVector": vector,
+        }, ensure_ascii=False))
+
+    resp = client.bulk(
+        body="\n".join(bulk_lines) + "\n",
+        headers={"Content-Type": "application/x-ndjson"},
+    )
+    if resp.get("errors"):
+        raise HTTPException(status_code=500, detail="vector bulk index returned errors=true")
+
+    client.indices.refresh(index=VECTOR_INDEX_NAME)
+    return {
+        "ok": True,
+        "indexedChunks": len(chunk_records),
+        "deletedChunks": deleted_chunks,
+        "index": VECTOR_INDEX_NAME,
+        "embeddingModel": EMBEDDING_MODEL,
+        "embeddingDimension": EMBEDDING_DIMENSION,
+    }
 
 
 @app.post("/index/rebuild")
@@ -334,7 +461,7 @@ def index_rebuild(fileId: Optional[str] = None):
     """
     Rebuild/reconstruct index by indexMode:
     - TEXT   -> OpenSearch full-text reindex (existing /reindex)
-    - VECTOR -> vector rebuild (stub in demo)
+    - VECTOR -> vector rebuild (embedding + k-NN index)
     - HYBRID -> both
     """
     cfg = load_config()
@@ -346,27 +473,54 @@ def index_rebuild(fileId: Optional[str] = None):
         out["steps"]["text"] = reindex(fileId=fileId)
 
     if mode in ["VECTOR", "HYBRID"]:
-        out["steps"]["vector"] = vector_rebuild_stub(fileId=fileId)
+        out["steps"]["vector"] = vector_reindex(fileId=fileId)
 
     return out
 
 @app.get("/search")
-def search(q: str = Query(..., min_length=1), topK: int = Query(10, ge=1, le=50)):
+def search(
+    q: str = Query(..., min_length=1),
+    topK: int = Query(10, ge=1, le=50),
+    mode: str = Query("TEXT"),
+):
     client = connect_os()
-    if not client.indices.exists(INDEX_NAME):
-        raise HTTPException(status_code=404, detail=f"index not found: {INDEX_NAME}")
+    mode = mode.upper()
+    if mode not in ["TEXT", "VECTOR"]:
+        raise HTTPException(status_code=400, detail="mode must be TEXT or VECTOR; HYBRID is planned")
 
-    body = {
-        "size": topK,
-        "query": {"match": {"content": q}},
-        "highlight": {
-            "fields": {"content": {}},
-            "pre_tags": ["<em>"],
-            "post_tags": ["</em>"],
-        },
-    }
+    if mode == "TEXT":
+        index_name = INDEX_NAME
+    else:
+        index_name = VECTOR_INDEX_NAME
 
-    resp = client.search(index=INDEX_NAME, body=body)
+    if not client.indices.exists(index_name):
+        raise HTTPException(status_code=404, detail=f"index not found: {index_name}")
+
+    if mode == "TEXT":
+        body = {
+            "size": topK,
+            "query": {"match": {"content": q}},
+            "highlight": {
+                "fields": {"content": {}},
+                "pre_tags": ["<em>"],
+                "post_tags": ["</em>"],
+            },
+        }
+    else:
+        query_vector = embed_texts([q])[0]
+        body = {
+            "size": topK,
+            "query": {
+                "knn": {
+                    "contentVector": {
+                        "vector": query_vector,
+                        "k": topK,
+                    }
+                }
+            },
+        }
+
+    resp = client.search(index=index_name, body=body)
     hits = resp.get("hits", {}).get("hits", [])
     results = []
     for rank, h in enumerate(hits, start=1):
@@ -380,9 +534,18 @@ def search(q: str = Query(..., min_length=1), topK: int = Query(10, ge=1, le=50)
             "chunkId": src.get("chunkId"),
             "chunkIndex": src.get("chunkIndex"),
             "score": h.get("_score"),
+            "textRank": rank if mode == "TEXT" else None,
+            "vectorRank": rank if mode == "VECTOR" else None,
             "highlight": hl[0] if hl else None,
             "content": content,
             "contentPreview": content_preview(content),
         })
 
-    return {"q": q, "mode": "TEXT", "topK": topK, "count": len(results), "results": results}
+    return {
+        "q": q,
+        "mode": mode,
+        "topK": topK,
+        "count": len(results),
+        "embeddingModel": EMBEDDING_MODEL if mode == "VECTOR" else None,
+        "results": results,
+    }

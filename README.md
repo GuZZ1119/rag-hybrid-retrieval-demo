@@ -271,7 +271,7 @@ From the `demo` directory, run:
 docker compose exec kb-api python /app/eval/run_retrieval_eval.py --bootstrap
 ```
 
-`--bootstrap` uploads any missing fixture documents, rebuilds the demo index, runs the 12 evaluation cases, and writes the Markdown report to `eval/reports/latest.md`.
+`--bootstrap` uploads any missing fixture documents, rebuilds the selected demo index, runs the 12 evaluation cases, and writes the Markdown report to `eval/reports/latest.md`.
 
 The report includes:
 
@@ -287,7 +287,36 @@ python eval/run_retrieval_eval.py --validate-only
 python eval/eval_smoke_test.py
 ```
 
-The fixtures are intentionally synthetic and should be used with a clean demo data volume, not a real knowledge base. The initial goal is a stable BM25 reference point; future `VECTOR`, `HYBRID`, and `GRAPH_HYBRID` modes should run against the same dataset and report format.
+The fixtures are intentionally synthetic and should be used with a clean demo data volume, not a real knowledge base.
+
+## Vector Retrieval / 向量检索
+
+`VECTOR` is a real OpenSearch k-NN retrieval path. It stores normalized chunk embeddings in the separate `kb_demo_chunks_vector_v1` index, so the existing BM25 index remains safe and directly comparable.
+
+`VECTOR` 是真实的 OpenSearch k-NN 检索路径。它将归一化 chunk 向量写入独立的 `kb_demo_chunks_vector_v1` 索引，现有 BM25 索引不会被迁移或覆盖，可以直接对比。
+
+The Docker demo uses `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` with 384 dimensions on CPU. The first vector rebuild downloads the model; later rebuilds reuse the local model cache.
+
+Docker Demo 默认使用 CPU 上的 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`（384 维）。首次向量重建会下载模型，之后会复用本地模型缓存。
+
+From the `demo` directory, rebuild and evaluate vector retrieval:
+
+```bash
+docker compose up -d --build
+docker compose exec kb-api python /app/eval/run_retrieval_eval.py \
+  --bootstrap \
+  --mode VECTOR \
+  --output /app/eval/reports/vector_baseline.md
+```
+
+Search a query directly with either retrieval path:
+
+```bash
+curl "http://localhost:8080/search?q=远程访问公司资源需要什么安全措施&mode=TEXT"
+curl "http://localhost:8080/search?q=远程访问公司资源需要什么安全措施&mode=VECTOR"
+```
+
+`/search` returns `textRank` for TEXT results and `vectorRank` plus `embeddingModel` for VECTOR results. `HYBRID` remains the next phase, where both candidate lists will be fused and reranked.
 
 🧠 Engineering Highlights / 工程亮点
 

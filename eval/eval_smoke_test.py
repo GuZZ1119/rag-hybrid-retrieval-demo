@@ -31,6 +31,9 @@ def main() -> None:
     assert metrics["mrr_at_10"] == 0.5
     assert metrics["negative_no_result_rate"] == 1.0
 
+    report = evaluator.render_report([hit_case, miss_case, negative_case], metrics, "http://example.test", 10, "VECTOR")
+    assert "# VECTOR Retrieval Baseline" in report
+
 
 if __name__ == "__main__":
     main()
