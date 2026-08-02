@@ -49,6 +49,7 @@
       - EMBEDDING_DEVICE=cpu
       - HYBRID_CANDIDATE_K=20
       - HYBRID_RRF_K=60
+      - NO_ANSWER_MIN_TEXT_SCORE=4.0
       - DATA_DIR=/data
     volumes:
       - kb-data:/data

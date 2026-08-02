@@ -16,3 +16,5 @@
 {"id":"remote-access-paraphrase","category":"paraphrase","query":"在家连内部系统怎么做身份验证？","expected_file":"remote_work_policy.txt","expected_terms":["VPN","多因素认证"]}
 {"id":"reimbursement-procurement-sequence","category":"relationship","query":"采购费用为什么要先走审批再申请报销？","expected_file":"reimbursement_policy.txt","expected_terms":["采购申请","报销"]}
 {"id":"negative-gym-benefit","category":"negative","query":"公司是否提供健身房补贴？","expected_file":null,"expected_terms":[]}
+{"id":"negative-annual-leave","category":"negative","query":"公司年假有几天？","expected_file":null,"expected_terms":[]}
+{"id":"negative-commute-benefit","category":"negative","query":"员工通勤补贴怎么申请？","expected_file":null,"expected_terms":[]}

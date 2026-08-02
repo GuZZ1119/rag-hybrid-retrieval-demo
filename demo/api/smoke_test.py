@@ -130,6 +130,22 @@ def test_hybrid_fusion(kb):
     assert fused[0]["fusionScore"] > fused[1]["fusionScore"]
 
 
+def test_answer_decision(kb):
+    weak_hybrid_result = [{"textScore": kb.NO_ANSWER_MIN_TEXT_SCORE - 0.1}]
+    weak_decision = kb.decide_answer("HYBRID", weak_hybrid_result)
+    assert weak_decision["status"] == "NO_ANSWER"
+    assert weak_decision["reason"] == "insufficient_lexical_evidence"
+    assert weak_decision["evidence"]["supportingChunkCount"] == 0
+
+    strong_hybrid_result = [{"textScore": kb.NO_ANSWER_MIN_TEXT_SCORE, "vectorScore": 0.4}]
+    strong_decision = kb.decide_answer("HYBRID", strong_hybrid_result)
+    assert strong_decision["status"] == "ANSWER"
+    assert strong_decision["evidence"]["supportingChunkCount"] == 1
+
+    assert kb.decide_answer("HYBRID", [])["status"] == "NO_ANSWER"
+    assert kb.decide_answer("VECTOR", [{"vectorScore": 0.4}])["status"] == "ANSWER"
+
+
 async def test_upload_and_config(kb):
     uploaded = await kb.upload(FakeUploadFile("../kb.txt", b"hello world"))
     assert uploaded["filename"] == "kb.txt"
@@ -160,6 +176,7 @@ async def main():
         test_extract_text(kb, temp_dir)
         test_vector_helpers(kb)
         test_hybrid_fusion(kb)
+        test_answer_decision(kb)
         await test_upload_and_config(kb)
     finally:
         temp_dir.cleanup()

@@ -2,6 +2,13 @@
 
 This file records project delivery commits with the date and the completed work. Add a new entry whenever a project change is pushed.
 
+## 2026-08-02 23:45 AEST
+
+- Added an evidence-gated `ANSWER` / `NO_ANSWER` decision to HYBRID retrieval, using a configurable BM25 evidence threshold after RRF fusion.
+- Added decision reason and numeric evidence to search responses; rejected queries now return an empty visible candidate list instead of weakly related chunks.
+- Extended the golden set with two out-of-scope benefit queries and added positive-answer, negative-no-answer, and decision-error reporting.
+- Completed the Docker HYBRID no-answer baseline on 20 cases: `Recall@3=100%`, `Recall@5=100%`, `MRR@10=1.000`, `Positive answer rate=100%`, and `Negative no-answer rate=100%`.
+
 ## 2026-07-31 23:17 AEST
 
 - Added executable `HYBRID` search: BM25 and vector candidates are fused with Reciprocal Rank Fusion (RRF) instead of comparing raw scores.

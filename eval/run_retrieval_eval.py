@@ -141,10 +141,14 @@ def is_relevant(result: Dict[str, Any], item: Dict[str, Any]) -> bool:
     return all(normalize(term) in content for term in item["expected_terms"])
 
 
-def evaluate_item(item: Dict[str, Any], results: List[Dict[str, Any]], top_k: int) -> Dict[str, Any]:
+def evaluate_item(item: Dict[str, Any], response: Dict[str, Any], top_k: int) -> Dict[str, Any]:
+    results = response.get("results", [])
     relevant_ranks = [rank for rank, result in enumerate(results[:top_k], start=1) if is_relevant(result, item)]
     return {
         "item": item,
+        "decision": response.get("decision", "ANSWER"),
+        "decisionReason": response.get("decisionReason"),
+        "decisionEvidence": response.get("decisionEvidence", {}),
         "results": results[:top_k],
         "firstRelevantRank": relevant_ranks[0] if relevant_ranks else None,
         "relevantCount": len(relevant_ranks),
@@ -165,9 +169,10 @@ def calculate_metrics(cases: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         "recall_at_3": sum(case["firstRelevantRank"] is not None and case["firstRelevantRank"] <= 3 for case in positive_cases) / positive_count,
         "recall_at_5": sum(case["firstRelevantRank"] is not None and case["firstRelevantRank"] <= 5 for case in positive_cases) / positive_count,
         "mrr_at_10": sum(1 / case["firstRelevantRank"] if case["firstRelevantRank"] else 0 for case in positive_cases) / positive_count,
+        "positive_answer_rate": sum(case["decision"] == "ANSWER" for case in positive_cases) / positive_count,
     }
     if negative_cases:
-        metrics["negative_no_result_rate"] = sum(not case["results"] for case in negative_cases) / len(negative_cases)
+        metrics["negative_no_answer_rate"] = sum(case["decision"] == "NO_ANSWER" for case in negative_cases) / len(negative_cases)
     return metrics
 
 
@@ -193,9 +198,10 @@ def render_report(cases: List[Dict[str, Any]], metrics: Dict[str, Any], api_url:
         f"| Recall@3 | {format_rate(metrics['recall_at_3'])} |",
         f"| Recall@5 | {format_rate(metrics['recall_at_5'])} |",
         f"| MRR@10 | {metrics['mrr_at_10']:.3f} |",
+        f"| Positive answer rate | {format_rate(metrics['positive_answer_rate'])} |",
     ]
-    if "negative_no_result_rate" in metrics:
-        lines.append(f"| Negative no-result rate | {format_rate(metrics['negative_no_result_rate'])} |")
+    if "negative_no_answer_rate" in metrics:
+        lines.append(f"| Negative no-answer rate | {format_rate(metrics['negative_no_answer_rate'])} |")
 
     failed_cases = [case for case in cases if case["item"]["category"] != "negative" and case["firstRelevantRank"] is None]
     lines.extend(["", "## Failed Retrievals", ""])
@@ -217,6 +223,22 @@ def render_report(cases: List[Dict[str, Any]], metrics: Dict[str, Any], api_url:
             else:
                 lines.append("  - No chunks returned")
             lines.append("")
+
+    decision_errors = [
+        case for case in cases
+        if (case["item"]["category"] == "negative" and case["decision"] != "NO_ANSWER")
+        or (case["item"]["category"] != "negative" and case["decision"] != "ANSWER")
+    ]
+    lines.extend(["", "## Decision Errors", ""])
+    if not decision_errors:
+        lines.append("No answer decisions disagreed with the golden labels.")
+    else:
+        for case in decision_errors:
+            item = case["item"]
+            lines.append(
+                f"- `{item['id']}` ({item['category']}): `{case['decision']}` / "
+                f"`{case.get('decisionReason') or 'no reason returned'}`"
+            )
     return "\n".join(lines) + "\n"
 
 
@@ -257,7 +279,7 @@ def main() -> int:
         for item in items:
             query = urlencode({"q": item["query"], "topK": args.top_k, "mode": args.mode})
             response = request_json(f"{api_url}/search?{query}")
-            cases.append(evaluate_item(item, response.get("results", []), args.top_k))
+            cases.append(evaluate_item(item, response, args.top_k))
 
         metrics = calculate_metrics(cases)
         report = render_report(cases, metrics, api_url, args.top_k, args.mode)

@@ -47,6 +47,17 @@ def read_non_negative_int_env(name: str, default: int) -> int:
     return value
 
 
+def read_non_negative_float_env(name: str, default: float) -> float:
+    raw = os.getenv(name, str(default))
+    try:
+        value = float(raw)
+    except ValueError as e:
+        raise RuntimeError(f"{name} must be a number") from e
+    if value < 0:
+        raise RuntimeError(f"{name} must be greater than or equal to 0")
+    return value
+
+
 CHUNK_SIZE = read_positive_int_env("CHUNK_SIZE", 800)
 CHUNK_OVERLAP = read_non_negative_int_env("CHUNK_OVERLAP", 120)
 MAX_UPLOAD_BYTES = read_positive_int_env("MAX_UPLOAD_BYTES", 10 * 1024 * 1024)
@@ -62,6 +73,7 @@ EMBEDDING_DIMENSION = read_positive_int_env("EMBEDDING_DIMENSION", 384)
 EMBEDDING_DEVICE = os.getenv("EMBEDDING_DEVICE", "cpu")
 HYBRID_CANDIDATE_K = read_positive_int_env("HYBRID_CANDIDATE_K", 20)
 HYBRID_RRF_K = read_non_negative_int_env("HYBRID_RRF_K", 60)
+NO_ANSWER_MIN_TEXT_SCORE = read_non_negative_float_env("NO_ANSWER_MIN_TEXT_SCORE", 4.0)
 
 app = FastAPI(title="KB Demo API (Sanitized)", version="0.1.0")
 embedding_provider: Optional[EmbeddingProvider] = None
@@ -348,6 +360,48 @@ def format_search_result(
         "highlight": highlight[0] if highlight else None,
         "content": content,
         "contentPreview": content_preview(content),
+    }
+
+
+def decide_answer(mode: str, results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Return a small, inspectable answer decision without generating text."""
+    if not results:
+        return {
+            "status": "NO_ANSWER",
+            "reason": "no_retrieval_candidates",
+            "evidence": {"retrievedCount": 0},
+        }
+
+    if mode != "HYBRID":
+        return {
+            "status": "ANSWER",
+            "reason": "single_path_retrieval_not_gated",
+            "evidence": {"retrievedCount": len(results)},
+        }
+
+    text_scores = [
+        float(result["textScore"])
+        for result in results
+        if result.get("textScore") is not None
+    ]
+    max_text_score = max(text_scores, default=0.0)
+    supporting_chunks = sum(score >= NO_ANSWER_MIN_TEXT_SCORE for score in text_scores)
+    evidence = {
+        "retrievedCount": len(results),
+        "maxTextScore": max_text_score,
+        "minTextScore": NO_ANSWER_MIN_TEXT_SCORE,
+        "supportingChunkCount": supporting_chunks,
+    }
+    if supporting_chunks == 0:
+        return {
+            "status": "NO_ANSWER",
+            "reason": "insufficient_lexical_evidence",
+            "evidence": evidence,
+        }
+    return {
+        "status": "ANSWER",
+        "reason": "hybrid_lexical_evidence_above_threshold",
+        "evidence": evidence,
     }
 
 
@@ -640,5 +694,13 @@ def search(
         ]
         response.update({"candidateK": candidate_k, "rrfK": HYBRID_RRF_K})
 
-    response.update({"count": len(results), "results": results})
+    decision = decide_answer(mode, results)
+    response.update({
+        "decision": decision["status"],
+        "decisionReason": decision["reason"],
+        "decisionEvidence": decision["evidence"],
+        "retrievedCount": len(results),
+        "count": len(results) if decision["status"] == "ANSWER" else 0,
+        "results": results if decision["status"] == "ANSWER" else [],
+    })
     return response

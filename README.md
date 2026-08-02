@@ -340,6 +340,25 @@ Hybrid results expose `textRank`, `vectorRank`, `textScore`, `vectorScore`, and 
 
 混合结果会返回 `textRank`、`vectorRank`、`textScore`、`vectorScore` 与 `fusionScore`，响应根部还会返回 `candidateK` 和 `rrfK`。默认值可通过 `HYBRID_CANDIDATE_K=20` 和 `HYBRID_RRF_K=60` 调整。
 
+## Evidence-Gated Retrieval / 证据门控检索
+
+The production-oriented `HYBRID` path adds a small, inspectable decision layer after retrieval. A query is returned as `ANSWER` only when at least one fused candidate reaches the configured BM25 evidence threshold. Otherwise the API returns `NO_ANSWER`, clears the candidate list, and exposes the decision reason and numeric evidence instead of presenting a weakly similar document as an answer.
+
+面向生产使用的 `HYBRID` 路径会在检索后增加一个轻量、可检查的决策层。至少一个融合候选达到配置的 BM25 证据阈值时才返回 `ANSWER`；否则 API 返回 `NO_ANSWER`、清空候选列表，并返回判断原因和数值证据，避免把弱语义相似的文档伪装成答案。
+
+`NO_ANSWER_MIN_TEXT_SCORE=4.0` is calibrated against the current fixed golden set and should be re-measured after replacing the demo documents. `TEXT` and `VECTOR` retain their raw retrieval behavior; the gate is deliberately enabled only for the dual-evidence `HYBRID` path.
+
+`NO_ANSWER_MIN_TEXT_SCORE=4.0` 基于当前固定 golden set 校准；替换 Demo 文档后必须重新回测。`TEXT` 与 `VECTOR` 保留原始检索行为，门控仅在双证据 `HYBRID` 路径启用。
+
+```bash
+docker compose exec kb-api python /app/eval/run_retrieval_eval.py \
+  --bootstrap \
+  --mode HYBRID \
+  --output /app/eval/reports/no_answer_baseline.md
+```
+
+The report adds `Positive answer rate`, `Negative no-answer rate`, and a `Decision Errors` section alongside retrieval metrics.
+
 🧠 Engineering Highlights / 工程亮点
 
 Hybrid indexing design / 混合索引设计
