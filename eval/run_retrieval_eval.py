@@ -50,6 +50,7 @@ def validate_dataset(items: List[Dict[str, Any]]) -> None:
         query = item.get("query")
         expected_file = item.get("expected_file")
         expected_terms = item.get("expected_terms")
+        expected_graph_entities = item.get("expected_graph_entities", [])
 
         if not isinstance(item_id, str) or not item_id:
             raise ValueError("every item needs a non-empty string id")
@@ -62,6 +63,8 @@ def validate_dataset(items: List[Dict[str, Any]]) -> None:
             raise ValueError(f"{item_id}: query must be a non-empty string")
         if not isinstance(expected_terms, list) or not all(isinstance(term, str) and term for term in expected_terms):
             raise ValueError(f"{item_id}: expected_terms must be a list of non-empty strings")
+        if not isinstance(expected_graph_entities, list) or not all(isinstance(entity, str) and entity for entity in expected_graph_entities):
+            raise ValueError(f"{item_id}: expected_graph_entities must be a list of non-empty strings")
 
         if category == "negative":
             if expected_file is not None or expected_terms:
@@ -149,6 +152,11 @@ def evaluate_item(item: Dict[str, Any], response: Dict[str, Any], top_k: int) ->
         "decision": response.get("decision", "ANSWER"),
         "decisionReason": response.get("decisionReason"),
         "decisionEvidence": response.get("decisionEvidence", {}),
+        "graphEvidence": response.get("graphEvidence", []),
+        "graphEvidenceMatch": any(
+            normalize(str(path.get("entity", ""))) in {normalize(entity) for entity in item.get("expected_graph_entities", [])}
+            for path in response.get("graphEvidence", [])
+        ),
         "results": results[:top_k],
         "firstRelevantRank": relevant_ranks[0] if relevant_ranks else None,
         "relevantCount": len(relevant_ranks),
@@ -159,6 +167,7 @@ def calculate_metrics(cases: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     cases = list(cases)
     positive_cases = [case for case in cases if case["item"]["category"] != "negative"]
     negative_cases = [case for case in cases if case["item"]["category"] == "negative"]
+    relationship_cases = [case for case in cases if case["item"]["category"] == "relationship"]
     if not positive_cases:
         raise ValueError("evaluation dataset has no positive cases")
 
@@ -173,6 +182,8 @@ def calculate_metrics(cases: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     }
     if negative_cases:
         metrics["negative_no_answer_rate"] = sum(case["decision"] == "NO_ANSWER" for case in negative_cases) / len(negative_cases)
+    if relationship_cases:
+        metrics["graph_evidence_coverage"] = sum(case["graphEvidenceMatch"] for case in relationship_cases) / len(relationship_cases)
     return metrics
 
 
@@ -202,6 +213,8 @@ def render_report(cases: List[Dict[str, Any]], metrics: Dict[str, Any], api_url:
     ]
     if "negative_no_answer_rate" in metrics:
         lines.append(f"| Negative no-answer rate | {format_rate(metrics['negative_no_answer_rate'])} |")
+    if "graph_evidence_coverage" in metrics:
+        lines.append(f"| Graph evidence coverage | {format_rate(metrics['graph_evidence_coverage'])} |")
 
     failed_cases = [case for case in cases if case["item"]["category"] != "negative" and case["firstRelevantRank"] is None]
     lines.extend(["", "## Failed Retrievals", ""])

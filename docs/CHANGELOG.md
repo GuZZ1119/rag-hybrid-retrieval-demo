@@ -2,6 +2,13 @@
 
 This file records project delivery commits with the date and the completed work. Add a new entry whenever a project change is pushed.
 
+## 2026-08-04 00:06 AEST
+
+- Added a source-grounded OpenSearch evidence graph with document-to-chunk, next-chunk, and shared-entity edges.
+- Added conditional graph routing for relationship queries and returned inspectable graph paths with file and chunk provenance.
+- Added graph helper coverage and entity-validated `Graph evidence coverage` to the retrieval evaluation report.
+- Completed the Docker HYBRID graph baseline on 20 cases: `Recall@3=100%`, `Recall@5=100%`, `MRR@10=1.000`, `Positive answer rate=100%`, `Negative no-answer rate=100%`, and `Graph evidence coverage=100%`.
+
 ## 2026-08-02 23:45 AEST
 
 - Added an evidence-gated `ANSWER` / `NO_ANSWER` decision to HYBRID retrieval, using a configurable BM25 evidence threshold after RRF fusion.

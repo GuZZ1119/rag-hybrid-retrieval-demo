@@ -111,6 +111,29 @@ def test_vector_helpers(kb):
     assert_raises_http(500, kb.embed_texts, ["wrong dimension"])
 
 
+def test_graph_helpers(kb):
+    client = FakeOpenSearch()
+    kb.create_graph_index_if_needed(client)
+    mapping = client.indices.created[kb.GRAPH_INDEX_NAME]
+    assert mapping["mappings"]["properties"]["relation"]["type"] == "keyword"
+
+    chunks = [
+        {"fileId": "procurement", "filename": "procurement.txt", "chunkId": "procurement:0", "chunkIndex": 0, "content": "采购申请需要部门负责人审批。"},
+        {"fileId": "reimbursement", "filename": "reimbursement.txt", "chunkId": "reimbursement:0", "chunkIndex": 0, "content": "报销需要关联采购申请。"},
+        {"fileId": "remote", "filename": "remote.txt", "chunkId": "remote:0", "chunkIndex": 0, "content": "远程访问必须使用VPN。"},
+    ]
+    edges = kb.build_graph_records(chunks)
+    assert any(edge["relation"] == "CONTAINS" for edge in edges)
+    assert any(edge["relation"] == "MENTIONS" and edge["entity"] == "采购申请" for edge in edges)
+    assert kb.is_relationship_query("报销为什么需要关联采购申请？")
+    assert not kb.is_relationship_query("远程访问安全措施是什么？")
+    seed_edges = [
+        {"_source": {"entity": "关联采购"}},
+        {"_source": {"entity": "采购申请"}},
+    ]
+    assert kb.filter_graph_seed_edges_by_query("报销为什么需要关联采购申请？", seed_edges) == [seed_edges[1]]
+
+
 def test_hybrid_fusion(kb):
     def hit(chunk_id, score):
         return {
@@ -175,6 +198,7 @@ async def main():
         test_text_helpers(kb)
         test_extract_text(kb, temp_dir)
         test_vector_helpers(kb)
+        test_graph_helpers(kb)
         test_hybrid_fusion(kb)
         test_answer_decision(kb)
         await test_upload_and_config(kb)

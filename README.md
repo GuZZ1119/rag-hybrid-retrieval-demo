@@ -359,6 +359,25 @@ docker compose exec kb-api python /app/eval/run_retrieval_eval.py \
 
 The report adds `Positive answer rate`, `Negative no-answer rate`, and a `Decision Errors` section alongside retrieval metrics.
 
+## Evidence Graph Retrieval / 证据图谱检索
+
+During a HYBRID rebuild, the demo creates a lightweight evidence graph in OpenSearch: `Document -> Chunk` (`CONTAINS`), adjacent chunks (`NEXT_CHUNK`), and shared source-text entities (`MENTIONS`). Entity edges are created only for terms that occur in at least two chunks, and every edge retains its originating file and chunk metadata.
+
+HYBRID 重建时，Demo 会在 OpenSearch 中创建轻量证据图谱：`Document -> Chunk`（`CONTAINS`）、相邻 chunk（`NEXT_CHUNK`）以及跨 chunk 的源文本共享实体（`MENTIONS`）。实体边只会为至少出现在两个 chunk 中的词组创建，且每条边都保留原始文件和 chunk 元数据。
+
+Queries containing relationship cues such as `关联`, `审批`, `负责`, or `为什么` are graph-routed after retrieval. The API returns `graphRouted` and `graphEvidence`, showing the shared entity, source chunk, target chunk, and source preview. The graph supplements retrieval evidence; it does not invent relations or replace the RRF ranking.
+
+包含 `关联`、`审批`、`负责`、`为什么` 等关系信号的查询会在检索后触发图谱路由。API 会返回 `graphRouted` 和 `graphEvidence`，展示共享实体、起始 chunk、目标 chunk 与来源预览。图谱只补充检索证据，不生成无来源关系，也不替代 RRF 排名。
+
+```bash
+docker compose exec kb-api python /app/eval/run_retrieval_eval.py \
+  --bootstrap \
+  --mode HYBRID \
+  --output /app/eval/reports/graph_baseline.md
+```
+
+The graph baseline adds `Graph evidence coverage` for golden relationship queries, counted only when a returned path contains the expected shared entity.
+
 🧠 Engineering Highlights / 工程亮点
 
 Hybrid indexing design / 混合索引设计

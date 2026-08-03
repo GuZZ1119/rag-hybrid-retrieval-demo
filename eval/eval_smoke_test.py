@@ -36,6 +36,15 @@ def main() -> None:
     assert metrics["positive_answer_rate"] == 0.5
     assert metrics["negative_no_answer_rate"] == 1.0
 
+    relationship = next(item for item in items if item["category"] == "relationship")
+    relationship_case = evaluator.evaluate_item(
+        relationship,
+        {"decision": "ANSWER", "results": [relevant_result], "graphEvidence": [{"entity": "采购申请"}]},
+        top_k=10,
+    )
+    graph_metrics = evaluator.calculate_metrics([relationship_case])
+    assert graph_metrics["graph_evidence_coverage"] == 1.0
+
     report = evaluator.render_report([hit_case, miss_case, negative_case], metrics, "http://example.test", 10, "VECTOR")
     assert "# VECTOR Retrieval Baseline" in report
     assert "Negative no-answer rate" in report

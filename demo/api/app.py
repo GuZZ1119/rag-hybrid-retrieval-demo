@@ -3,7 +3,7 @@ import re
 import uuid
 import json
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from opensearchpy import OpenSearch
@@ -21,6 +21,7 @@ CONFIG_PATH = DATA_DIR / "config.json"
 OPENSEARCH_URL = os.getenv("OPENSEARCH_URL", "http://opensearch:9200")
 INDEX_NAME = os.getenv("OPENSEARCH_INDEX", "kb_demo_chunks")
 VECTOR_INDEX_NAME = os.getenv("OPENSEARCH_VECTOR_INDEX", "kb_demo_chunks_vector_v1")
+GRAPH_INDEX_NAME = os.getenv("OPENSEARCH_GRAPH_INDEX", "kb_demo_evidence_graph_v1")
 
 SUPPORTED_SUFFIXES = {".txt", ".md", ".log", ".pdf", ".docx"}
 
@@ -74,6 +75,14 @@ EMBEDDING_DEVICE = os.getenv("EMBEDDING_DEVICE", "cpu")
 HYBRID_CANDIDATE_K = read_positive_int_env("HYBRID_CANDIDATE_K", 20)
 HYBRID_RRF_K = read_non_negative_int_env("HYBRID_RRF_K", 60)
 NO_ANSWER_MIN_TEXT_SCORE = read_non_negative_float_env("NO_ANSWER_MIN_TEXT_SCORE", 4.0)
+GRAPH_SEED_LIMIT = read_positive_int_env("GRAPH_SEED_LIMIT", 3)
+GRAPH_MAX_PATHS = read_positive_int_env("GRAPH_MAX_PATHS", 8)
+
+GRAPH_ENTITY_MIN_CHARS = 3
+GRAPH_ENTITY_MAX_CHARS = 6
+GRAPH_ENTITY_STOP_TERMS = {"公司", "员工", "部门", "负责", "需要", "可以", "应当", "必须"}
+GRAPH_ENTITY_PREFERRED_SUFFIXES = ("申请", "审批", "报告", "负责人", "指挥官", "认证", "数据", "设备", "合同", "发票", "预算", "费用", "票据", "行程单")
+RELATION_QUERY_CUES = ("关联", "关系", "流程", "负责", "谁", "审批", "原因", "为什么")
 
 app = FastAPI(title="KB Demo API (Sanitized)", version="0.1.0")
 embedding_provider: Optional[EmbeddingProvider] = None
@@ -154,6 +163,31 @@ def create_vector_index_if_needed(client: OpenSearch) -> None:
         },
     }
     client.indices.create(index=VECTOR_INDEX_NAME, body=body)
+
+
+def create_graph_index_if_needed(client: OpenSearch) -> None:
+    if client.indices.exists(GRAPH_INDEX_NAME):
+        return
+
+    body = {
+        "mappings": {
+            "properties": {
+                "edgeId": {"type": "keyword"},
+                "relation": {"type": "keyword"},
+                "fromId": {"type": "keyword"},
+                "toId": {"type": "keyword"},
+                "fromType": {"type": "keyword"},
+                "toType": {"type": "keyword"},
+                "fileId": {"type": "keyword"},
+                "filename": {"type": "keyword"},
+                "chunkId": {"type": "keyword"},
+                "chunkIndex": {"type": "integer"},
+                "entity": {"type": "keyword"},
+                "contentPreview": {"type": "text"},
+            }
+        }
+    }
+    client.indices.create(index=GRAPH_INDEX_NAME, body=body)
 
 
 def delete_chunks_for_file_ids(client: OpenSearch, index_name: str, file_ids: List[str]) -> int:
@@ -260,6 +294,122 @@ def content_preview(content: str, limit: int = 160) -> str:
     if len(content) <= limit:
         return content
     return content[:limit] + "..."
+
+
+def extract_graph_entity_candidates(content: str) -> Set[str]:
+    """Extract source-text spans that may form high-confidence shared entities."""
+    entities: Set[str] = set()
+    for run in re.findall(r"[\u4e00-\u9fff]{%d,}" % GRAPH_ENTITY_MIN_CHARS, content):
+        for size in range(GRAPH_ENTITY_MIN_CHARS, min(GRAPH_ENTITY_MAX_CHARS, len(run)) + 1):
+            for start in range(0, len(run) - size + 1):
+                entity = run[start:start + size]
+                if entity not in GRAPH_ENTITY_STOP_TERMS:
+                    entities.add(entity)
+    for token in re.findall(r"\b[A-Za-z][A-Za-z0-9_-]{1,}\b|\bP\d+\b", content):
+        entities.add(token.lower())
+    return entities
+
+
+def graph_entity_sort_key(entity: str):
+    return (0 if entity.endswith(GRAPH_ENTITY_PREFERRED_SUFFIXES) else 1, -len(entity), entity)
+
+
+def shared_entities_by_chunk(chunk_records: List[Dict[str, Any]]) -> Dict[str, List[str]]:
+    entity_chunks: Dict[str, Set[str]] = {}
+    for record in chunk_records:
+        chunk_id = str(record["chunkId"])
+        for entity in extract_graph_entity_candidates(record["content"]):
+            entity_chunks.setdefault(entity, set()).add(chunk_id)
+
+    shared_entities = {
+        entity for entity, chunk_ids in entity_chunks.items()
+        if len(chunk_ids) >= 2
+    }
+    by_chunk: Dict[str, List[str]] = {}
+    for record in chunk_records:
+        chunk_id = str(record["chunkId"])
+        entities = sorted(
+            (entity for entity in extract_graph_entity_candidates(record["content"]) if entity in shared_entities),
+            key=graph_entity_sort_key,
+        )
+        by_chunk[chunk_id] = entities[:12]
+    return by_chunk
+
+
+def build_graph_records(chunk_records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Create source-grounded document/chunk/entity edges for OpenSearch."""
+    entity_map = shared_entities_by_chunk(chunk_records)
+    edges: List[Dict[str, Any]] = []
+    records_by_file: Dict[str, List[Dict[str, Any]]] = {}
+    for record in chunk_records:
+        records_by_file.setdefault(str(record["fileId"]), []).append(record)
+
+    for file_id, records in records_by_file.items():
+        records.sort(key=lambda record: int(record["chunkIndex"]))
+        document_id = f"document:{file_id}"
+        for record in records:
+            chunk_id = str(record["chunkId"])
+            common = {
+                "fileId": file_id,
+                "filename": record["filename"],
+                "chunkId": chunk_id,
+                "chunkIndex": record["chunkIndex"],
+                "contentPreview": content_preview(record["content"]),
+            }
+            edges.append({
+                **common,
+                "edgeId": f"{document_id}:contains:{chunk_id}",
+                "relation": "CONTAINS",
+                "fromId": document_id,
+                "toId": chunk_id,
+                "fromType": "DOCUMENT",
+                "toType": "CHUNK",
+            })
+            for entity in entity_map.get(chunk_id, []):
+                edges.append({
+                    **common,
+                    "edgeId": f"{chunk_id}:mentions:{entity}",
+                    "relation": "MENTIONS",
+                    "fromId": chunk_id,
+                    "toId": f"entity:{entity}",
+                    "fromType": "CHUNK",
+                    "toType": "ENTITY",
+                    "entity": entity,
+                })
+        for current, following in zip(records, records[1:]):
+            edges.append({
+                "edgeId": f"{current['chunkId']}:next:{following['chunkId']}",
+                "relation": "NEXT_CHUNK",
+                "fromId": current["chunkId"],
+                "toId": following["chunkId"],
+                "fromType": "CHUNK",
+                "toType": "CHUNK",
+                "fileId": file_id,
+                "filename": current["filename"],
+                "chunkId": current["chunkId"],
+                "chunkIndex": current["chunkIndex"],
+                "contentPreview": content_preview(following["content"]),
+            })
+    return edges
+
+
+def is_relationship_query(query: str) -> bool:
+    return any(cue in query for cue in RELATION_QUERY_CUES)
+
+
+def filter_graph_seed_edges_by_query(query: str, edges: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    query_entities = extract_graph_entity_candidates(query)
+    matching_edges = [
+        edge for edge in edges
+        if edge.get("_source", {}).get("entity") in query_entities
+    ]
+    if not matching_edges:
+        return edges
+    best_key = min(graph_entity_sort_key(str(edge.get("_source", {}).get("entity", ""))) for edge in matching_edges)
+    return [
+        edge for edge in matching_edges
+        if graph_entity_sort_key(str(edge.get("_source", {}).get("entity", ""))) == best_key
+    ]
 
 
 def text_search_body(query: str, size: int) -> Dict[str, Any]:
@@ -613,13 +763,124 @@ def vector_reindex(fileId: Optional[str] = None):
     }
 
 
+def graph_reindex(fileId: Optional[str] = None):
+    """Build source-grounded document, chunk, and shared-entity graph edges."""
+    ensure_dirs()
+    client = connect_os()
+    create_graph_index_if_needed(client)
+
+    files = load_meta().get("files", [])
+    if fileId:
+        files = [file for file in files if file.get("fileId") == fileId]
+        if not files:
+            raise HTTPException(status_code=404, detail=f"fileId not found: {fileId}")
+
+    rebuild_file_ids = [str(file.get("fileId")) for file in files if file.get("fileId")]
+    deleted_edges = delete_chunks_for_file_ids(client, GRAPH_INDEX_NAME, rebuild_file_ids)
+    chunk_records = []
+    for file in files:
+        path = Path(file["path"])
+        if not path.exists():
+            continue
+        text = clean_text(extract_text(path))
+        for index, content in enumerate(split_chunks(text, CHUNK_SIZE, CHUNK_OVERLAP)):
+            chunk_records.append({
+                "fileId": file["fileId"],
+                "filename": file["filename"],
+                "chunkId": f'{file["fileId"]}:{index}',
+                "chunkIndex": index,
+                "content": content,
+            })
+
+    graph_records = build_graph_records(chunk_records)
+    if not graph_records:
+        return {"ok": True, "indexedEdges": 0, "deletedEdges": deleted_edges, "index": GRAPH_INDEX_NAME}
+
+    bulk_lines: List[str] = []
+    for record in graph_records:
+        bulk_lines.append(json.dumps({"index": {"_index": GRAPH_INDEX_NAME, "_id": record["edgeId"]}}, ensure_ascii=False))
+        bulk_lines.append(json.dumps(record, ensure_ascii=False))
+    response = client.bulk(
+        body="\n".join(bulk_lines) + "\n",
+        headers={"Content-Type": "application/x-ndjson"},
+    )
+    if response.get("errors"):
+        raise HTTPException(status_code=500, detail="graph bulk index returned errors=true")
+    client.indices.refresh(index=GRAPH_INDEX_NAME)
+    return {"ok": True, "indexedEdges": len(graph_records), "deletedEdges": deleted_edges, "index": GRAPH_INDEX_NAME}
+
+
+def graph_expand(client: OpenSearch, query: str, seed_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not client.indices.exists(GRAPH_INDEX_NAME):
+        return []
+    seed_chunk_ids = [
+        str(result["chunkId"])
+        for result in seed_results[:GRAPH_SEED_LIMIT]
+        if result.get("chunkId")
+    ]
+    if not seed_chunk_ids:
+        return []
+
+    seed_edges = client.search(
+        index=GRAPH_INDEX_NAME,
+        body={
+            "size": GRAPH_MAX_PATHS,
+            "query": {"bool": {"filter": [
+                {"terms": {"fromId": seed_chunk_ids}},
+                {"term": {"relation": "MENTIONS"}},
+            ]}},
+        },
+    ).get("hits", {}).get("hits", [])
+    seed_edges = filter_graph_seed_edges_by_query(query, seed_edges)
+    entity_ids = [edge.get("_source", {}).get("toId") for edge in seed_edges]
+    entity_ids = [entity_id for entity_id in entity_ids if entity_id]
+    if not entity_ids:
+        return []
+
+    target_edges = client.search(
+        index=GRAPH_INDEX_NAME,
+        body={
+            "size": GRAPH_MAX_PATHS * 2,
+            "query": {"bool": {"filter": [
+                {"terms": {"toId": entity_ids}},
+                {"term": {"relation": "MENTIONS"}},
+            ]}},
+        },
+    ).get("hits", {}).get("hits", [])
+    paths: List[Dict[str, Any]] = []
+    seen = set()
+    for seed_edge in seed_edges:
+        seed = seed_edge.get("_source", {})
+        for target_edge in target_edges:
+            target = target_edge.get("_source", {})
+            if target.get("toId") != seed.get("toId") or target.get("fromId") == seed.get("fromId"):
+                continue
+            key = (seed.get("fromId"), target.get("fromId"), seed.get("entity"))
+            if key in seen:
+                continue
+            seen.add(key)
+            paths.append({
+                "relation": "MENTIONS",
+                "entity": seed.get("entity"),
+                "fromChunkId": seed.get("fromId"),
+                "fromFilename": seed.get("filename"),
+                "toChunkId": target.get("fromId"),
+                "filename": target.get("filename"),
+                "chunkIndex": target.get("chunkIndex"),
+                "evidence": target.get("contentPreview"),
+            })
+            if len(paths) >= GRAPH_MAX_PATHS:
+                return paths
+    return paths
+
+
 @app.post("/index/rebuild")
 def index_rebuild(fileId: Optional[str] = None):
     """
     Rebuild/reconstruct index by indexMode:
     - TEXT   -> OpenSearch full-text reindex (existing /reindex)
     - VECTOR -> vector rebuild (embedding + k-NN index)
-    - HYBRID -> both
+    - HYBRID -> text, vector, and source-grounded graph rebuild
     """
     cfg = load_config()
     mode = (cfg.get("indexMode") or "TEXT").upper()
@@ -631,6 +892,9 @@ def index_rebuild(fileId: Optional[str] = None):
 
     if mode in ["VECTOR", "HYBRID"]:
         out["steps"]["vector"] = vector_reindex(fileId=fileId)
+
+    if mode == "HYBRID":
+        out["steps"]["graph"] = graph_reindex(fileId=fileId)
 
     return out
 
@@ -695,6 +959,8 @@ def search(
         response.update({"candidateK": candidate_k, "rrfK": HYBRID_RRF_K})
 
     decision = decide_answer(mode, results)
+    graph_routed = mode == "HYBRID" and decision["status"] == "ANSWER" and is_relationship_query(q)
+    graph_evidence = graph_expand(client, q, results) if graph_routed else []
     response.update({
         "decision": decision["status"],
         "decisionReason": decision["reason"],
@@ -702,5 +968,7 @@ def search(
         "retrievedCount": len(results),
         "count": len(results) if decision["status"] == "ANSWER" else 0,
         "results": results if decision["status"] == "ANSWER" else [],
+        "graphRouted": graph_routed,
+        "graphEvidence": graph_evidence,
     })
     return response
