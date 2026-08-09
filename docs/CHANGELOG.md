@@ -2,6 +2,13 @@
 
 This file records project delivery commits with the date and the completed work. Add a new entry whenever a project change is pushed.
 
+## 2026-08-09 22:17 AEST
+
+- Added `POST /ask`, which composes HYBRID retrieval, evidence gating, graph evidence, and structured citations into a user-facing answer response.
+- Added an optional grounded OpenAI-compatible completion adapter with a fully runnable extractive fallback when no external LLM is configured.
+- Added citation coverage evaluation and an ask baseline report.
+- Completed the Docker HYBRID ask baseline on 20 cases: `Recall@3=100%`, `Recall@5=100%`, `MRR@10=1.000`, `Positive answer rate=100%`, `Negative no-answer rate=100%`, `Graph evidence coverage=100%`, and `Citation coverage=100%`.
+
 ## 2026-08-04 00:06 AEST
 
 - Added a source-grounded OpenSearch evidence graph with document-to-chunk, next-chunk, and shared-entity edges.

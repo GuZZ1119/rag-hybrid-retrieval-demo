@@ -53,6 +53,9 @@
       - NO_ANSWER_MIN_TEXT_SCORE=4.0
       - GRAPH_SEED_LIMIT=3
       - GRAPH_MAX_PATHS=8
+      - ASK_MAX_CITATIONS=3
+      - ASK_CONTEXT_CHAR_LIMIT=2400
+      - LLM_TIMEOUT_SECONDS=30
       - DATA_DIR=/data
     volumes:
       - kb-data:/data

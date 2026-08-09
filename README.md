@@ -378,6 +378,30 @@ docker compose exec kb-api python /app/eval/run_retrieval_eval.py \
 
 The graph baseline adds `Graph evidence coverage` for golden relationship queries, counted only when a returned path contains the expected shared entity.
 
+## Citation-First Ask / 带引用问答
+
+`POST /ask` is the user-facing entry point. It always uses `HYBRID` retrieval, evidence gating, and conditional graph expansion before constructing an answer. A `NO_ANSWER` decision is returned unchanged and never reaches a generator.
+
+`POST /ask` 是面向使用者的入口。它固定使用 `HYBRID` 检索、证据门控和条件图谱扩展后再构造答案。`NO_ANSWER` 会原样返回，绝不会发送给生成器。
+
+Without any external configuration, `/ask` returns an extractive, citable answer from the highest-ranked evidence so the Docker demo remains fully runnable. To enable a grounded OpenAI-compatible chat completion, configure `LLM_API_URL`, `LLM_API_KEY`, and `LLM_MODEL`. The request contains only the selected evidence context; if the provider fails, the API safely falls back to extractive evidence.
+
+未配置外部服务时，`/ask` 会从最高排名证据返回带引用的抽取式答案，因此 Docker Demo 始终可运行。配置 `LLM_API_URL`、`LLM_API_KEY` 与 `LLM_MODEL` 后可启用受证据约束的 OpenAI-compatible 对话补全。请求只包含选中的证据上下文；若服务失败，API 会安全降级为抽取式证据。
+
+```bash
+curl -X POST http://localhost:8080/ask \
+  -H "Content-Type: application/json" \
+  -d '{"q":"采购金额超过五千元需要谁审批？","topK":3}'
+
+docker compose exec kb-api python /app/eval/run_retrieval_eval.py \
+  --bootstrap \
+  --mode HYBRID \
+  --endpoint ask \
+  --output /app/eval/reports/ask_baseline.md
+```
+
+The response contains `answer`, `answerMode`, `answerReason`, and structured `citations`; the ask baseline adds `Citation coverage` for positive golden cases.
+
 🧠 Engineering Highlights / 工程亮点
 
 Hybrid indexing design / 混合索引设计

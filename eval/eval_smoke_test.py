@@ -45,6 +45,14 @@ def main() -> None:
     graph_metrics = evaluator.calculate_metrics([relationship_case])
     assert graph_metrics["graph_evidence_coverage"] == 1.0
 
+    ask_case = evaluator.evaluate_item(
+        positive,
+        {"decision": "ANSWER", "results": [relevant_result], "citations": [{"filename": "incident_response_guide.txt"}]},
+        top_k=10,
+    )
+    ask_metrics = evaluator.calculate_metrics([ask_case])
+    assert ask_metrics["citation_coverage"] == 1.0
+
     report = evaluator.render_report([hit_case, miss_case, negative_case], metrics, "http://example.test", 10, "VECTOR")
     assert "# VECTOR Retrieval Baseline" in report
     assert "Negative no-answer rate" in report

@@ -3,7 +3,9 @@ import re
 import uuid
 import json
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Dict, Any, Optional, Protocol, Set
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from opensearchpy import OpenSearch
@@ -77,6 +79,12 @@ HYBRID_RRF_K = read_non_negative_int_env("HYBRID_RRF_K", 60)
 NO_ANSWER_MIN_TEXT_SCORE = read_non_negative_float_env("NO_ANSWER_MIN_TEXT_SCORE", 4.0)
 GRAPH_SEED_LIMIT = read_positive_int_env("GRAPH_SEED_LIMIT", 3)
 GRAPH_MAX_PATHS = read_positive_int_env("GRAPH_MAX_PATHS", 8)
+ASK_MAX_CITATIONS = read_positive_int_env("ASK_MAX_CITATIONS", 3)
+ASK_CONTEXT_CHAR_LIMIT = read_positive_int_env("ASK_CONTEXT_CHAR_LIMIT", 2400)
+LLM_API_URL = os.getenv("LLM_API_URL", "").strip()
+LLM_API_KEY = os.getenv("LLM_API_KEY", "").strip()
+LLM_MODEL = os.getenv("LLM_MODEL", "").strip()
+LLM_TIMEOUT_SECONDS = read_positive_int_env("LLM_TIMEOUT_SECONDS", 30)
 
 GRAPH_ENTITY_MIN_CHARS = 3
 GRAPH_ENTITY_MAX_CHARS = 6
@@ -86,6 +94,48 @@ RELATION_QUERY_CUES = ("关联", "关系", "流程", "负责", "谁", "审批", 
 
 app = FastAPI(title="KB Demo API (Sanitized)", version="0.1.0")
 embedding_provider: Optional[EmbeddingProvider] = None
+
+
+class AnswerGenerator(Protocol):
+    def generate(self, question: str, context: str) -> str:
+        """Generate a grounded answer from the supplied evidence context."""
+
+
+class OpenAICompatibleAnswerGenerator:
+    def generate(self, question: str, context: str) -> str:
+        if not (LLM_API_URL and LLM_API_KEY and LLM_MODEL):
+            raise RuntimeError("LLM_API_URL, LLM_API_KEY, and LLM_MODEL must all be configured")
+        prompt = (
+            "Answer the question using only the evidence below. Do not add facts not present in the evidence. "
+            "Write in the language of the question and cite each factual statement with the provided source label.\n\n"
+            f"Question: {question}\n\nEvidence:\n{context}"
+        )
+        payload = json.dumps({
+            "model": LLM_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0,
+        }).encode("utf-8")
+        request = Request(
+            LLM_API_URL,
+            data=payload,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {LLM_API_KEY}",
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urlopen(request, timeout=LLM_TIMEOUT_SECONDS) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except (HTTPError, URLError, OSError) as error:
+            raise RuntimeError("grounded LLM request failed") from error
+        try:
+            answer = body["choices"][0]["message"]["content"].strip()
+        except (KeyError, IndexError, AttributeError, TypeError) as error:
+            raise RuntimeError("LLM response did not contain a chat completion") from error
+        if not answer:
+            raise RuntimeError("LLM returned an empty answer")
+        return answer
 
 
 def ensure_dirs() -> None:
@@ -555,6 +605,91 @@ def decide_answer(mode: str, results: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def build_citations(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    citations = []
+    seen_chunk_ids = set()
+    for result in results:
+        chunk_id = result.get("chunkId")
+        if not chunk_id or chunk_id in seen_chunk_ids:
+            continue
+        seen_chunk_ids.add(chunk_id)
+        citations.append({
+            "citationId": len(citations) + 1,
+            "fileId": result.get("fileId"),
+            "filename": result.get("filename"),
+            "chunkId": chunk_id,
+            "chunkIndex": result.get("chunkIndex"),
+            "contentPreview": result.get("contentPreview"),
+        })
+        if len(citations) >= ASK_MAX_CITATIONS:
+            break
+    return citations
+
+
+def build_answer_context(citations: List[Dict[str, Any]], results: List[Dict[str, Any]]) -> str:
+    content_by_chunk_id = {result.get("chunkId"): result.get("content", "") for result in results}
+    sections = []
+    remaining = ASK_CONTEXT_CHAR_LIMIT
+    for citation in citations:
+        content = str(content_by_chunk_id.get(citation["chunkId"], ""))
+        if not content or remaining <= 0:
+            continue
+        excerpt = content[:remaining]
+        sections.append(f"[{citation['filename']}#{citation['chunkId']}]\n{excerpt}")
+        remaining -= len(excerpt)
+    return "\n\n".join(sections)
+
+
+def compose_grounded_answer(
+    question: str,
+    retrieval: Dict[str, Any],
+    generator: Optional[AnswerGenerator] = None,
+) -> Dict[str, Any]:
+    if retrieval.get("decision") != "ANSWER":
+        return {
+            "answer": "No grounded answer is available in the knowledge base.",
+            "answerMode": "NO_ANSWER",
+            "answerReason": retrieval.get("decisionReason"),
+            "citations": [],
+        }
+
+    results = retrieval.get("results", [])
+    citations = build_citations(results)
+    if not citations:
+        return {
+            "answer": "No grounded answer is available in the knowledge base.",
+            "answerMode": "NO_ANSWER",
+            "answerReason": "no_citable_evidence",
+            "citations": [],
+        }
+
+    context = build_answer_context(citations, results)
+    if generator is not None:
+        try:
+            return {
+                "answer": generator.generate(question, context),
+                "answerMode": "LLM",
+                "answerReason": "grounded_llm_completion",
+                "citations": citations,
+            }
+        except RuntimeError:
+            pass
+
+    first_citation = citations[0]
+    return {
+        "answer": f"Evidence from {first_citation['filename']}: {first_citation['contentPreview']}",
+        "answerMode": "EXTRACTIVE",
+        "answerReason": "llm_not_configured_or_unavailable",
+        "citations": citations,
+    }
+
+
+def get_answer_generator() -> Optional[AnswerGenerator]:
+    if not (LLM_API_URL and LLM_API_KEY and LLM_MODEL):
+        return None
+    return OpenAICompatibleAnswerGenerator()
+
+
 @app.get("/health")
 def health():
     ensure_dirs()
@@ -972,3 +1107,17 @@ def search(
         "graphEvidence": graph_evidence,
     })
     return response
+
+
+@app.post("/ask")
+def ask(body: Dict[str, Any]):
+    question = body.get("q")
+    if not isinstance(question, str) or not question.strip():
+        raise HTTPException(status_code=400, detail="q must be a non-empty string")
+    requested_top_k = body.get("topK", 5)
+    if not isinstance(requested_top_k, int) or isinstance(requested_top_k, bool) or not 1 <= requested_top_k <= 50:
+        raise HTTPException(status_code=400, detail="topK must be an integer from 1 to 50")
+
+    retrieval = search(q=question.strip(), topK=requested_top_k, mode="HYBRID")
+    answer = compose_grounded_answer(question.strip(), retrieval, get_answer_generator())
+    return {**retrieval, **answer}

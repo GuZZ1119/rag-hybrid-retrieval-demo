@@ -27,6 +27,15 @@ class FakeEmbeddingProvider:
         return [[0.0] * self.dimension for _ in texts]
 
 
+class FakeAnswerGenerator:
+    def __init__(self):
+        self.calls = []
+
+    def generate(self, question, context):
+        self.calls.append((question, context))
+        return "Grounded answer [policy.txt#file-1:0]"
+
+
 class FakeIndices:
     def __init__(self):
         self.created = {}
@@ -169,6 +178,34 @@ def test_answer_decision(kb):
     assert kb.decide_answer("VECTOR", [{"vectorScore": 0.4}])["status"] == "ANSWER"
 
 
+def test_grounded_answer_composer(kb):
+    retrieval = {
+        "decision": "ANSWER",
+        "results": [{
+            "fileId": "file-1",
+            "filename": "policy.txt",
+            "chunkId": "file-1:0",
+            "chunkIndex": 0,
+            "content": "Procurement requires an approved request.",
+            "contentPreview": "Procurement requires an approved request.",
+        }],
+    }
+    generator = FakeAnswerGenerator()
+    answer = kb.compose_grounded_answer("What is required?", retrieval, generator)
+    assert answer["answerMode"] == "LLM"
+    assert answer["citations"][0]["filename"] == "policy.txt"
+    assert generator.calls[0][0] == "What is required?"
+    assert "policy.txt#file-1:0" in generator.calls[0][1]
+
+    fallback = kb.compose_grounded_answer("What is required?", retrieval)
+    assert fallback["answerMode"] == "EXTRACTIVE"
+    assert "policy.txt" in fallback["answer"]
+
+    no_answer = kb.compose_grounded_answer("Unknown", {"decision": "NO_ANSWER", "results": []}, generator)
+    assert no_answer["answerMode"] == "NO_ANSWER"
+    assert not generator.calls[1:]
+
+
 async def test_upload_and_config(kb):
     uploaded = await kb.upload(FakeUploadFile("../kb.txt", b"hello world"))
     assert uploaded["filename"] == "kb.txt"
@@ -201,6 +238,7 @@ async def main():
         test_graph_helpers(kb)
         test_hybrid_fusion(kb)
         test_answer_decision(kb)
+        test_grounded_answer_composer(kb)
         await test_upload_and_config(kb)
     finally:
         temp_dir.cleanup()
