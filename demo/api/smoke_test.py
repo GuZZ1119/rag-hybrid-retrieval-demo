@@ -206,6 +206,28 @@ def test_grounded_answer_composer(kb):
     assert not generator.calls[1:]
 
 
+def test_feedback_helpers(kb):
+    request_id = "request-1"
+    response = {
+        "decision": "ANSWER",
+        "answerMode": "EXTRACTIVE",
+        "retrievedCount": 2,
+        "citations": [{"citationId": 1}],
+        "graphRouted": True,
+    }
+    kb.record_ask_event(request_id, "采购审批怎么做？", response)
+    events = kb.load_ask_events()
+    assert events[0]["queryLength"] == len("采购审批怎么做？")
+    assert "采购审批" not in json.dumps(events[0], ensure_ascii=False)
+    assert kb.request_id_exists(request_id)
+
+    kb.append_ask_event({"eventType": "feedback", "requestId": request_id, "rating": "UP"})
+    summary = kb.feedback_summary()
+    assert summary["askCount"] == 1
+    assert summary["positiveFeedbackCount"] == 1
+    assert summary["positiveFeedbackRate"] == 1.0
+
+
 async def test_upload_and_config(kb):
     uploaded = await kb.upload(FakeUploadFile("../kb.txt", b"hello world"))
     assert uploaded["filename"] == "kb.txt"
@@ -239,6 +261,7 @@ async def main():
         test_hybrid_fusion(kb)
         test_answer_decision(kb)
         test_grounded_answer_composer(kb)
+        test_feedback_helpers(kb)
         await test_upload_and_config(kb)
     finally:
         temp_dir.cleanup()

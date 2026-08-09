@@ -2,6 +2,12 @@
 
 This file records project delivery commits with the date and the completed work. Add a new entry whenever a project change is pushed.
 
+## 2026-08-09 23:11 AEST
+
+- Added privacy-minimized `/ask` event logging, binary feedback submission, and feedback summary aggregation keyed by request ID.
+- Updated fixture bootstrap to index distractor documents and added standard/challenge quality slices to evaluation reports.
+- Completed the Docker quality baseline on a six-document fixture corpus: overall and challenge `Recall@3=100%`, overall and challenge `MRR@10=1.000`, `Negative no-answer rate=100%`, and `Citation coverage=100%`.
+
 ## 2026-08-09 22:17 AEST
 
 - Added `POST /ask`, which composes HYBRID retrieval, evidence gating, graph evidence, and structured citations into a user-facing answer response.

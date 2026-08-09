@@ -51,6 +51,7 @@ def validate_dataset(items: List[Dict[str, Any]]) -> None:
         expected_file = item.get("expected_file")
         expected_terms = item.get("expected_terms")
         expected_graph_entities = item.get("expected_graph_entities", [])
+        difficulty = item.get("difficulty", "standard")
 
         if not isinstance(item_id, str) or not item_id:
             raise ValueError("every item needs a non-empty string id")
@@ -65,6 +66,8 @@ def validate_dataset(items: List[Dict[str, Any]]) -> None:
             raise ValueError(f"{item_id}: expected_terms must be a list of non-empty strings")
         if not isinstance(expected_graph_entities, list) or not all(isinstance(entity, str) and entity for entity in expected_graph_entities):
             raise ValueError(f"{item_id}: expected_graph_entities must be a list of non-empty strings")
+        if difficulty not in {"standard", "challenge"}:
+            raise ValueError(f"{item_id}: difficulty must be standard or challenge")
 
         if category == "negative":
             if expected_file is not None or expected_terms:
@@ -114,13 +117,17 @@ def bootstrap_fixtures(api_url: str, items: List[Dict[str, Any]], fixture_dir: P
     if missing_paths:
         raise RuntimeError(f"fixture files are missing: {', '.join(str(path) for path in missing_paths)}")
 
+    fixture_paths = sorted(path for path in fixture_dir.iterdir() if path.is_file())
+    if not fixture_paths:
+        raise RuntimeError(f"no fixture files found in {fixture_dir}")
+
     listed = request_json(f"{api_url}/files")
     existing_filenames = {item.get("filename") for item in listed.get("files", [])}
     uploaded = []
-    for filename in expected_files:
-        if filename not in existing_filenames:
-            upload_file(api_url, fixture_dir / filename)
-            uploaded.append(filename)
+    for path in fixture_paths:
+        if path.name not in existing_filenames:
+            upload_file(api_url, path)
+            uploaded.append(path.name)
 
     if mode == "TEXT":
         request_json(f"{api_url}/reindex", method="POST")
@@ -195,6 +202,15 @@ def calculate_metrics(cases: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         metrics["graph_evidence_coverage"] = sum(case["graphEvidenceMatch"] for case in relationship_cases) / len(relationship_cases)
     if citation_cases:
         metrics["citation_coverage"] = sum(case["citationMatch"] for case in citation_cases) / len(citation_cases)
+    difficulty_metrics = {}
+    for difficulty in sorted({case["item"].get("difficulty", "standard") for case in positive_cases}):
+        difficulty_cases = [case for case in positive_cases if case["item"].get("difficulty", "standard") == difficulty]
+        difficulty_metrics[difficulty] = {
+            "cases": len(difficulty_cases),
+            "recall_at_3": sum(case["firstRelevantRank"] is not None and case["firstRelevantRank"] <= 3 for case in difficulty_cases) / len(difficulty_cases),
+            "mrr_at_10": sum(1 / case["firstRelevantRank"] if case["firstRelevantRank"] else 0 for case in difficulty_cases) / len(difficulty_cases),
+        }
+    metrics["difficulty_metrics"] = difficulty_metrics
     return metrics
 
 
@@ -230,6 +246,12 @@ def render_report(cases: List[Dict[str, Any]], metrics: Dict[str, Any], api_url:
         lines.append(f"| Graph evidence coverage | {format_rate(metrics['graph_evidence_coverage'])} |")
     if "citation_coverage" in metrics:
         lines.append(f"| Citation coverage | {format_rate(metrics['citation_coverage'])} |")
+
+    lines.extend(["", "## Retrieval by Difficulty", "", "| Difficulty | Cases | Recall@3 | MRR@10 |", "| --- | ---: | ---: | ---: |"])
+    for difficulty, values in metrics.get("difficulty_metrics", {}).items():
+        lines.append(
+            f"| {difficulty} | {values['cases']} | {format_rate(values['recall_at_3'])} | {values['mrr_at_10']:.3f} |"
+        )
 
     failed_cases = [case for case in cases if case["item"]["category"] != "negative" and case["firstRelevantRank"] is None]
     lines.extend(["", "## Failed Retrievals", ""])

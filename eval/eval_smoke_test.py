@@ -35,6 +35,7 @@ def main() -> None:
     assert metrics["mrr_at_10"] == 0.5
     assert metrics["positive_answer_rate"] == 0.5
     assert metrics["negative_no_answer_rate"] == 1.0
+    assert metrics["difficulty_metrics"]["standard"]["cases"] == 2
 
     relationship = next(item for item in items if item["category"] == "relationship")
     relationship_case = evaluator.evaluate_item(

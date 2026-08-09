@@ -402,6 +402,24 @@ docker compose exec kb-api python /app/eval/run_retrieval_eval.py \
 
 The response contains `answer`, `answerMode`, `answerReason`, and structured `citations`; the ask baseline adds `Citation coverage` for positive golden cases.
 
+## Quality Feedback Loop / 质量与反馈闭环
+
+Each `/ask` response includes a `requestId`. The API stores a privacy-minimized event in the Docker data volume: a query fingerprint and length, decision, answer mode, retrieval count, citation count, and graph-routing state. It does not store the raw question or answer text.
+
+每个 `/ask` 响应都包含 `requestId`。API 会在 Docker 数据卷中写入最小化隐私事件：查询指纹和长度、决策、答案模式、召回数量、引用数量与图谱路由状态；不会记录原始问题或答案文本。
+
+```bash
+curl -X POST http://localhost:8080/feedback \
+  -H "Content-Type: application/json" \
+  -d '{"requestId":"<request-id>","rating":"UP"}'
+
+curl http://localhost:8080/feedback/summary
+```
+
+Feedback is intentionally binary (`UP` or `DOWN`) for this personal demo. The next calibration step should use its aggregate outcomes, not mutate retrieval settings automatically.
+
+The evaluation bootstrap now indexes every fixture document, including distractor documents. Golden cases can be marked `standard` or `challenge`; reports include Recall@3 and MRR@10 for both groups.
+
 🧠 Engineering Highlights / 工程亮点
 
 Hybrid indexing design / 混合索引设计
