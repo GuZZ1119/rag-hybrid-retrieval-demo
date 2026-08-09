@@ -271,7 +271,7 @@ From the `demo` directory, run:
 docker compose exec kb-api python /app/eval/run_retrieval_eval.py --bootstrap
 ```
 
-`--bootstrap` uploads any missing fixture documents, rebuilds the demo index, runs the 12 evaluation cases, and writes the Markdown report to `eval/reports/latest.md`.
+`--bootstrap` uploads any missing fixture documents, rebuilds the selected demo index, runs the fixed golden evaluation cases, and writes the Markdown report to `eval/reports/latest.md`.
 
 The report includes:
 
@@ -287,7 +287,120 @@ python eval/run_retrieval_eval.py --validate-only
 python eval/eval_smoke_test.py
 ```
 
-The fixtures are intentionally synthetic and should be used with a clean demo data volume, not a real knowledge base. The initial goal is a stable BM25 reference point; future `VECTOR`, `HYBRID`, and `GRAPH_HYBRID` modes should run against the same dataset and report format.
+The fixtures are intentionally synthetic and should be used with a clean demo data volume, not a real knowledge base.
+
+## Vector Retrieval / 向量检索
+
+`VECTOR` is a real OpenSearch k-NN retrieval path. It stores normalized chunk embeddings in the separate `kb_demo_chunks_vector_v1` index, so the existing BM25 index remains safe and directly comparable.
+
+`VECTOR` 是真实的 OpenSearch k-NN 检索路径。它将归一化 chunk 向量写入独立的 `kb_demo_chunks_vector_v1` 索引，现有 BM25 索引不会被迁移或覆盖，可以直接对比。
+
+The Docker demo uses `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` with 384 dimensions on CPU. The first vector rebuild downloads the model; later rebuilds reuse the local model cache.
+
+Docker Demo 默认使用 CPU 上的 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`（384 维）。首次向量重建会下载模型，之后会复用本地模型缓存。
+
+From the `demo` directory, rebuild and evaluate vector retrieval:
+
+```bash
+docker compose up -d --build
+docker compose exec kb-api python /app/eval/run_retrieval_eval.py \
+  --bootstrap \
+  --mode VECTOR \
+  --output /app/eval/reports/vector_baseline.md
+```
+
+Search a query directly with either retrieval path:
+
+```bash
+curl "http://localhost:8080/search?q=远程访问公司资源需要什么安全措施&mode=TEXT"
+curl "http://localhost:8080/search?q=远程访问公司资源需要什么安全措施&mode=VECTOR"
+```
+
+`/search` returns `textRank` for TEXT results and `vectorRank` plus `embeddingModel` for VECTOR results.
+
+## Hybrid Retrieval / 混合检索
+
+`HYBRID` retrieves candidates from the BM25 and vector indexes independently, then applies Reciprocal Rank Fusion (RRF): `1 / (rrfK + rank)`. This avoids directly comparing incompatible BM25 and vector scores while rewarding evidence returned by both paths.
+
+`HYBRID` 会先从 BM25 与向量索引独立召回候选，再以 Reciprocal Rank Fusion（RRF，`1 / (rrfK + rank)`）融合排序。这样无需直接比较两种不可互换的原始分数，并会优先保留被两条证据路径同时召回的 chunk。
+
+Run the three baselines against the same golden set:
+
+```bash
+docker compose exec kb-api python /app/eval/run_retrieval_eval.py --bootstrap --mode TEXT --output /app/eval/reports/bm25_baseline.md
+docker compose exec kb-api python /app/eval/run_retrieval_eval.py --bootstrap --mode VECTOR --output /app/eval/reports/vector_baseline.md
+docker compose exec kb-api python /app/eval/run_retrieval_eval.py --bootstrap --mode HYBRID --output /app/eval/reports/hybrid_baseline.md
+```
+
+```bash
+curl "http://localhost:8080/search?q=采购费用为什么要先走审批再申请报销？&mode=HYBRID"
+```
+
+Hybrid results expose `textRank`, `vectorRank`, `textScore`, `vectorScore`, and `fusionScore`; `candidateK` and `rrfK` are returned at the response root. The default values are configurable through `HYBRID_CANDIDATE_K=20` and `HYBRID_RRF_K=60`.
+
+混合结果会返回 `textRank`、`vectorRank`、`textScore`、`vectorScore` 与 `fusionScore`，响应根部还会返回 `candidateK` 和 `rrfK`。默认值可通过 `HYBRID_CANDIDATE_K=20` 和 `HYBRID_RRF_K=60` 调整。
+
+## Evidence-Gated Retrieval / 证据门控检索
+
+The production-oriented `HYBRID` path adds a small, inspectable decision layer after retrieval. A query is returned as `ANSWER` only when at least one fused candidate reaches the configured BM25 evidence threshold. Otherwise the API returns `NO_ANSWER`, clears the candidate list, and exposes the decision reason and numeric evidence instead of presenting a weakly similar document as an answer.
+
+面向生产使用的 `HYBRID` 路径会在检索后增加一个轻量、可检查的决策层。至少一个融合候选达到配置的 BM25 证据阈值时才返回 `ANSWER`；否则 API 返回 `NO_ANSWER`、清空候选列表，并返回判断原因和数值证据，避免把弱语义相似的文档伪装成答案。
+
+`NO_ANSWER_MIN_TEXT_SCORE=4.0` is calibrated against the current fixed golden set and should be re-measured after replacing the demo documents. `TEXT` and `VECTOR` retain their raw retrieval behavior; the gate is deliberately enabled only for the dual-evidence `HYBRID` path.
+
+`NO_ANSWER_MIN_TEXT_SCORE=4.0` 基于当前固定 golden set 校准；替换 Demo 文档后必须重新回测。`TEXT` 与 `VECTOR` 保留原始检索行为，门控仅在双证据 `HYBRID` 路径启用。
+
+```bash
+docker compose exec kb-api python /app/eval/run_retrieval_eval.py \
+  --bootstrap \
+  --mode HYBRID \
+  --output /app/eval/reports/no_answer_baseline.md
+```
+
+The report adds `Positive answer rate`, `Negative no-answer rate`, and a `Decision Errors` section alongside retrieval metrics.
+
+## Evidence Graph Retrieval / 证据图谱检索
+
+During a HYBRID rebuild, the demo creates a lightweight evidence graph in OpenSearch: `Document -> Chunk` (`CONTAINS`), adjacent chunks (`NEXT_CHUNK`), and shared source-text entities (`MENTIONS`). Entity edges are created only for terms that occur in at least two chunks, and every edge retains its originating file and chunk metadata.
+
+HYBRID 重建时，Demo 会在 OpenSearch 中创建轻量证据图谱：`Document -> Chunk`（`CONTAINS`）、相邻 chunk（`NEXT_CHUNK`）以及跨 chunk 的源文本共享实体（`MENTIONS`）。实体边只会为至少出现在两个 chunk 中的词组创建，且每条边都保留原始文件和 chunk 元数据。
+
+Queries containing relationship cues such as `关联`, `审批`, `负责`, or `为什么` are graph-routed after retrieval. The API returns `graphRouted` and `graphEvidence`, showing the shared entity, source chunk, target chunk, and source preview. The graph supplements retrieval evidence; it does not invent relations or replace the RRF ranking.
+
+包含 `关联`、`审批`、`负责`、`为什么` 等关系信号的查询会在检索后触发图谱路由。API 会返回 `graphRouted` 和 `graphEvidence`，展示共享实体、起始 chunk、目标 chunk 与来源预览。图谱只补充检索证据，不生成无来源关系，也不替代 RRF 排名。
+
+```bash
+docker compose exec kb-api python /app/eval/run_retrieval_eval.py \
+  --bootstrap \
+  --mode HYBRID \
+  --output /app/eval/reports/graph_baseline.md
+```
+
+The graph baseline adds `Graph evidence coverage` for golden relationship queries, counted only when a returned path contains the expected shared entity.
+
+## Citation-First Ask / 带引用问答
+
+`POST /ask` is the user-facing entry point. It always uses `HYBRID` retrieval, evidence gating, and conditional graph expansion before constructing an answer. A `NO_ANSWER` decision is returned unchanged and never reaches a generator.
+
+`POST /ask` 是面向使用者的入口。它固定使用 `HYBRID` 检索、证据门控和条件图谱扩展后再构造答案。`NO_ANSWER` 会原样返回，绝不会发送给生成器。
+
+Without any external configuration, `/ask` returns an extractive, citable answer from the highest-ranked evidence so the Docker demo remains fully runnable. To enable a grounded OpenAI-compatible chat completion, configure `LLM_API_URL`, `LLM_API_KEY`, and `LLM_MODEL`. The request contains only the selected evidence context; if the provider fails, the API safely falls back to extractive evidence.
+
+未配置外部服务时，`/ask` 会从最高排名证据返回带引用的抽取式答案，因此 Docker Demo 始终可运行。配置 `LLM_API_URL`、`LLM_API_KEY` 与 `LLM_MODEL` 后可启用受证据约束的 OpenAI-compatible 对话补全。请求只包含选中的证据上下文；若服务失败，API 会安全降级为抽取式证据。
+
+```bash
+curl -X POST http://localhost:8080/ask \
+  -H "Content-Type: application/json" \
+  -d '{"q":"采购金额超过五千元需要谁审批？","topK":3}'
+
+docker compose exec kb-api python /app/eval/run_retrieval_eval.py \
+  --bootstrap \
+  --mode HYBRID \
+  --endpoint ask \
+  --output /app/eval/reports/ask_baseline.md
+```
+
+The response contains `answer`, `answerMode`, `answerReason`, and structured `citations`; the ask baseline adds `Citation coverage` for positive golden cases.
 
 🧠 Engineering Highlights / 工程亮点
 

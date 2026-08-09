@@ -41,11 +41,25 @@
     environment:
       - OPENSEARCH_URL=http://opensearch:9200
       - OPENSEARCH_INDEX=kb_demo_chunks
+      - OPENSEARCH_VECTOR_INDEX=kb_demo_chunks_vector_v1
+      - OPENSEARCH_GRAPH_INDEX=kb_demo_evidence_graph_v1
       - CHUNK_SIZE=800
       - CHUNK_OVERLAP=120
+      - EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+      - EMBEDDING_DIMENSION=384
+      - EMBEDDING_DEVICE=cpu
+      - HYBRID_CANDIDATE_K=20
+      - HYBRID_RRF_K=60
+      - NO_ANSWER_MIN_TEXT_SCORE=4.0
+      - GRAPH_SEED_LIMIT=3
+      - GRAPH_MAX_PATHS=8
+      - ASK_MAX_CITATIONS=3
+      - ASK_CONTEXT_CHAR_LIMIT=2400
+      - LLM_TIMEOUT_SECONDS=30
       - DATA_DIR=/data
     volumes:
       - kb-data:/data
+      - hf-model-cache:/root/.cache/huggingface
       - ../eval:/app/eval
     ports:
       - "8080:8080"
@@ -56,3 +70,4 @@
 volumes:
   opensearch-data:
   kb-data:
+  hf-model-cache:

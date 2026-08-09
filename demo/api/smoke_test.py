@@ -17,6 +17,41 @@ class FakeUploadFile:
         return self._content
 
 
+class FakeEmbeddingProvider:
+    def __init__(self, dimension):
+        self.dimension = dimension
+        self.requests = []
+
+    def embed(self, texts):
+        self.requests.append(texts)
+        return [[0.0] * self.dimension for _ in texts]
+
+
+class FakeAnswerGenerator:
+    def __init__(self):
+        self.calls = []
+
+    def generate(self, question, context):
+        self.calls.append((question, context))
+        return "Grounded answer [policy.txt#file-1:0]"
+
+
+class FakeIndices:
+    def __init__(self):
+        self.created = {}
+
+    def exists(self, _index):
+        return _index in self.created
+
+    def create(self, index, body):
+        self.created[index] = body
+
+
+class FakeOpenSearch:
+    def __init__(self):
+        self.indices = FakeIndices()
+
+
 def load_app_with_temp_data():
     temp_dir = tempfile.TemporaryDirectory()
     os.environ["DATA_DIR"] = temp_dir.name
@@ -69,6 +104,108 @@ def test_extract_text(kb, temp_dir):
     assert_raises_http(400, kb.extract_text, unsupported_path)
 
 
+def test_vector_helpers(kb):
+    client = FakeOpenSearch()
+    kb.create_vector_index_if_needed(client)
+    mapping = client.indices.created[kb.VECTOR_INDEX_NAME]
+    assert mapping["settings"]["index"]["knn"] is True
+    assert mapping["mappings"]["properties"]["contentVector"]["dimension"] == kb.EMBEDDING_DIMENSION
+
+    provider = FakeEmbeddingProvider(kb.EMBEDDING_DIMENSION)
+    kb.embedding_provider = provider
+    assert kb.embed_texts(["semantic query"]) == [[0.0] * kb.EMBEDDING_DIMENSION]
+    assert provider.requests == [["semantic query"]]
+
+    kb.embedding_provider = FakeEmbeddingProvider(kb.EMBEDDING_DIMENSION - 1)
+    assert_raises_http(500, kb.embed_texts, ["wrong dimension"])
+
+
+def test_graph_helpers(kb):
+    client = FakeOpenSearch()
+    kb.create_graph_index_if_needed(client)
+    mapping = client.indices.created[kb.GRAPH_INDEX_NAME]
+    assert mapping["mappings"]["properties"]["relation"]["type"] == "keyword"
+
+    chunks = [
+        {"fileId": "procurement", "filename": "procurement.txt", "chunkId": "procurement:0", "chunkIndex": 0, "content": "采购申请需要部门负责人审批。"},
+        {"fileId": "reimbursement", "filename": "reimbursement.txt", "chunkId": "reimbursement:0", "chunkIndex": 0, "content": "报销需要关联采购申请。"},
+        {"fileId": "remote", "filename": "remote.txt", "chunkId": "remote:0", "chunkIndex": 0, "content": "远程访问必须使用VPN。"},
+    ]
+    edges = kb.build_graph_records(chunks)
+    assert any(edge["relation"] == "CONTAINS" for edge in edges)
+    assert any(edge["relation"] == "MENTIONS" and edge["entity"] == "采购申请" for edge in edges)
+    assert kb.is_relationship_query("报销为什么需要关联采购申请？")
+    assert not kb.is_relationship_query("远程访问安全措施是什么？")
+    seed_edges = [
+        {"_source": {"entity": "关联采购"}},
+        {"_source": {"entity": "采购申请"}},
+    ]
+    assert kb.filter_graph_seed_edges_by_query("报销为什么需要关联采购申请？", seed_edges) == [seed_edges[1]]
+
+
+def test_hybrid_fusion(kb):
+    def hit(chunk_id, score):
+        return {
+            "_id": chunk_id,
+            "_score": score,
+            "_source": {"chunkId": chunk_id, "content": f"content for {chunk_id}"},
+        }
+
+    fused = kb.fuse_ranked_hits(
+        [hit("text-only", 10.0), hit("shared", 9.0)],
+        [hit("shared", 0.8), hit("vector-only", 0.7)],
+        top_k=2,
+    )
+    assert [candidate["hit"]["_source"]["chunkId"] for candidate in fused] == ["shared", "text-only"]
+    assert fused[0]["textRank"] == 2
+    assert fused[0]["vectorRank"] == 1
+    assert fused[0]["fusionScore"] > fused[1]["fusionScore"]
+
+
+def test_answer_decision(kb):
+    weak_hybrid_result = [{"textScore": kb.NO_ANSWER_MIN_TEXT_SCORE - 0.1}]
+    weak_decision = kb.decide_answer("HYBRID", weak_hybrid_result)
+    assert weak_decision["status"] == "NO_ANSWER"
+    assert weak_decision["reason"] == "insufficient_lexical_evidence"
+    assert weak_decision["evidence"]["supportingChunkCount"] == 0
+
+    strong_hybrid_result = [{"textScore": kb.NO_ANSWER_MIN_TEXT_SCORE, "vectorScore": 0.4}]
+    strong_decision = kb.decide_answer("HYBRID", strong_hybrid_result)
+    assert strong_decision["status"] == "ANSWER"
+    assert strong_decision["evidence"]["supportingChunkCount"] == 1
+
+    assert kb.decide_answer("HYBRID", [])["status"] == "NO_ANSWER"
+    assert kb.decide_answer("VECTOR", [{"vectorScore": 0.4}])["status"] == "ANSWER"
+
+
+def test_grounded_answer_composer(kb):
+    retrieval = {
+        "decision": "ANSWER",
+        "results": [{
+            "fileId": "file-1",
+            "filename": "policy.txt",
+            "chunkId": "file-1:0",
+            "chunkIndex": 0,
+            "content": "Procurement requires an approved request.",
+            "contentPreview": "Procurement requires an approved request.",
+        }],
+    }
+    generator = FakeAnswerGenerator()
+    answer = kb.compose_grounded_answer("What is required?", retrieval, generator)
+    assert answer["answerMode"] == "LLM"
+    assert answer["citations"][0]["filename"] == "policy.txt"
+    assert generator.calls[0][0] == "What is required?"
+    assert "policy.txt#file-1:0" in generator.calls[0][1]
+
+    fallback = kb.compose_grounded_answer("What is required?", retrieval)
+    assert fallback["answerMode"] == "EXTRACTIVE"
+    assert "policy.txt" in fallback["answer"]
+
+    no_answer = kb.compose_grounded_answer("Unknown", {"decision": "NO_ANSWER", "results": []}, generator)
+    assert no_answer["answerMode"] == "NO_ANSWER"
+    assert not generator.calls[1:]
+
+
 async def test_upload_and_config(kb):
     uploaded = await kb.upload(FakeUploadFile("../kb.txt", b"hello world"))
     assert uploaded["filename"] == "kb.txt"
@@ -97,6 +234,11 @@ async def main():
     try:
         test_text_helpers(kb)
         test_extract_text(kb, temp_dir)
+        test_vector_helpers(kb)
+        test_graph_helpers(kb)
+        test_hybrid_fusion(kb)
+        test_answer_decision(kb)
+        test_grounded_answer_composer(kb)
         await test_upload_and_config(kb)
     finally:
         temp_dir.cleanup()

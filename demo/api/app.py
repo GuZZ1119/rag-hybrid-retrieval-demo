@@ -3,12 +3,16 @@ import re
 import uuid
 import json
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Protocol, Set
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from opensearchpy import OpenSearch
 from pypdf import PdfReader
 from docx import Document
+
+from embedding import EmbeddingProvider, SentenceTransformerEmbeddingProvider
 
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
@@ -18,6 +22,8 @@ CONFIG_PATH = DATA_DIR / "config.json"
 
 OPENSEARCH_URL = os.getenv("OPENSEARCH_URL", "http://opensearch:9200")
 INDEX_NAME = os.getenv("OPENSEARCH_INDEX", "kb_demo_chunks")
+VECTOR_INDEX_NAME = os.getenv("OPENSEARCH_VECTOR_INDEX", "kb_demo_chunks_vector_v1")
+GRAPH_INDEX_NAME = os.getenv("OPENSEARCH_GRAPH_INDEX", "kb_demo_evidence_graph_v1")
 
 SUPPORTED_SUFFIXES = {".txt", ".md", ".log", ".pdf", ".docx"}
 
@@ -44,6 +50,17 @@ def read_non_negative_int_env(name: str, default: int) -> int:
     return value
 
 
+def read_non_negative_float_env(name: str, default: float) -> float:
+    raw = os.getenv(name, str(default))
+    try:
+        value = float(raw)
+    except ValueError as e:
+        raise RuntimeError(f"{name} must be a number") from e
+    if value < 0:
+        raise RuntimeError(f"{name} must be greater than or equal to 0")
+    return value
+
+
 CHUNK_SIZE = read_positive_int_env("CHUNK_SIZE", 800)
 CHUNK_OVERLAP = read_non_negative_int_env("CHUNK_OVERLAP", 120)
 MAX_UPLOAD_BYTES = read_positive_int_env("MAX_UPLOAD_BYTES", 10 * 1024 * 1024)
@@ -51,7 +68,74 @@ MAX_UPLOAD_BYTES = read_positive_int_env("MAX_UPLOAD_BYTES", 10 * 1024 * 1024)
 if CHUNK_OVERLAP >= CHUNK_SIZE:
     raise RuntimeError("CHUNK_OVERLAP must be smaller than CHUNK_SIZE")
 
+EMBEDDING_MODEL = os.getenv(
+    "EMBEDDING_MODEL",
+    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+)
+EMBEDDING_DIMENSION = read_positive_int_env("EMBEDDING_DIMENSION", 384)
+EMBEDDING_DEVICE = os.getenv("EMBEDDING_DEVICE", "cpu")
+HYBRID_CANDIDATE_K = read_positive_int_env("HYBRID_CANDIDATE_K", 20)
+HYBRID_RRF_K = read_non_negative_int_env("HYBRID_RRF_K", 60)
+NO_ANSWER_MIN_TEXT_SCORE = read_non_negative_float_env("NO_ANSWER_MIN_TEXT_SCORE", 4.0)
+GRAPH_SEED_LIMIT = read_positive_int_env("GRAPH_SEED_LIMIT", 3)
+GRAPH_MAX_PATHS = read_positive_int_env("GRAPH_MAX_PATHS", 8)
+ASK_MAX_CITATIONS = read_positive_int_env("ASK_MAX_CITATIONS", 3)
+ASK_CONTEXT_CHAR_LIMIT = read_positive_int_env("ASK_CONTEXT_CHAR_LIMIT", 2400)
+LLM_API_URL = os.getenv("LLM_API_URL", "").strip()
+LLM_API_KEY = os.getenv("LLM_API_KEY", "").strip()
+LLM_MODEL = os.getenv("LLM_MODEL", "").strip()
+LLM_TIMEOUT_SECONDS = read_positive_int_env("LLM_TIMEOUT_SECONDS", 30)
+
+GRAPH_ENTITY_MIN_CHARS = 3
+GRAPH_ENTITY_MAX_CHARS = 6
+GRAPH_ENTITY_STOP_TERMS = {"公司", "员工", "部门", "负责", "需要", "可以", "应当", "必须"}
+GRAPH_ENTITY_PREFERRED_SUFFIXES = ("申请", "审批", "报告", "负责人", "指挥官", "认证", "数据", "设备", "合同", "发票", "预算", "费用", "票据", "行程单")
+RELATION_QUERY_CUES = ("关联", "关系", "流程", "负责", "谁", "审批", "原因", "为什么")
+
 app = FastAPI(title="KB Demo API (Sanitized)", version="0.1.0")
+embedding_provider: Optional[EmbeddingProvider] = None
+
+
+class AnswerGenerator(Protocol):
+    def generate(self, question: str, context: str) -> str:
+        """Generate a grounded answer from the supplied evidence context."""
+
+
+class OpenAICompatibleAnswerGenerator:
+    def generate(self, question: str, context: str) -> str:
+        if not (LLM_API_URL and LLM_API_KEY and LLM_MODEL):
+            raise RuntimeError("LLM_API_URL, LLM_API_KEY, and LLM_MODEL must all be configured")
+        prompt = (
+            "Answer the question using only the evidence below. Do not add facts not present in the evidence. "
+            "Write in the language of the question and cite each factual statement with the provided source label.\n\n"
+            f"Question: {question}\n\nEvidence:\n{context}"
+        )
+        payload = json.dumps({
+            "model": LLM_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0,
+        }).encode("utf-8")
+        request = Request(
+            LLM_API_URL,
+            data=payload,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {LLM_API_KEY}",
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urlopen(request, timeout=LLM_TIMEOUT_SECONDS) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except (HTTPError, URLError, OSError) as error:
+            raise RuntimeError("grounded LLM request failed") from error
+        try:
+            answer = body["choices"][0]["message"]["content"].strip()
+        except (KeyError, IndexError, AttributeError, TypeError) as error:
+            raise RuntimeError("LLM response did not contain a chat completion") from error
+        if not answer:
+            raise RuntimeError("LLM returned an empty answer")
+        return answer
 
 
 def ensure_dirs() -> None:
@@ -106,7 +190,57 @@ def create_index_if_needed(client: OpenSearch) -> None:
     client.indices.create(index=INDEX_NAME, body=body)
 
 
-def delete_chunks_for_file_ids(client: OpenSearch, file_ids: List[str]) -> int:
+def create_vector_index_if_needed(client: OpenSearch) -> None:
+    if client.indices.exists(VECTOR_INDEX_NAME):
+        return
+
+    body = {
+        "settings": {"index": {"knn": True}},
+        "mappings": {
+            "properties": {
+                "fileId": {"type": "keyword"},
+                "filename": {"type": "keyword"},
+                "chunkId": {"type": "keyword"},
+                "chunkIndex": {"type": "integer"},
+                "content": {"type": "text"},
+                "embeddingModel": {"type": "keyword"},
+                "contentVector": {
+                    "type": "knn_vector",
+                    "dimension": EMBEDDING_DIMENSION,
+                    "space_type": "l2",
+                },
+            }
+        },
+    }
+    client.indices.create(index=VECTOR_INDEX_NAME, body=body)
+
+
+def create_graph_index_if_needed(client: OpenSearch) -> None:
+    if client.indices.exists(GRAPH_INDEX_NAME):
+        return
+
+    body = {
+        "mappings": {
+            "properties": {
+                "edgeId": {"type": "keyword"},
+                "relation": {"type": "keyword"},
+                "fromId": {"type": "keyword"},
+                "toId": {"type": "keyword"},
+                "fromType": {"type": "keyword"},
+                "toType": {"type": "keyword"},
+                "fileId": {"type": "keyword"},
+                "filename": {"type": "keyword"},
+                "chunkId": {"type": "keyword"},
+                "chunkIndex": {"type": "integer"},
+                "entity": {"type": "keyword"},
+                "contentPreview": {"type": "text"},
+            }
+        }
+    }
+    client.indices.create(index=GRAPH_INDEX_NAME, body=body)
+
+
+def delete_chunks_for_file_ids(client: OpenSearch, index_name: str, file_ids: List[str]) -> int:
     if not file_ids:
         return 0
 
@@ -118,12 +252,42 @@ def delete_chunks_for_file_ids(client: OpenSearch, file_ids: List[str]) -> int:
         }
     }
     resp = client.delete_by_query(
-        index=INDEX_NAME,
+        index=index_name,
         body=body,
         conflicts="proceed",
         refresh=True,
     )
     return int(resp.get("deleted", 0))
+
+
+def get_embedding_provider() -> EmbeddingProvider:
+    global embedding_provider
+    if embedding_provider is None:
+        embedding_provider = SentenceTransformerEmbeddingProvider(
+            model_name=EMBEDDING_MODEL,
+            device=EMBEDDING_DEVICE,
+        )
+    return embedding_provider
+
+
+def embed_texts(texts: List[str]) -> List[List[float]]:
+    try:
+        vectors = get_embedding_provider().embed(texts)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+    if len(vectors) != len(texts):
+        raise HTTPException(status_code=500, detail="embedding provider returned an unexpected vector count")
+    for vector in vectors:
+        if len(vector) != EMBEDDING_DIMENSION:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "embedding dimension mismatch; "
+                    f"expected {EMBEDDING_DIMENSION}, got {len(vector)}"
+                ),
+            )
+    return vectors
 
 
 def clean_text(s: str) -> str:
@@ -180,6 +344,350 @@ def content_preview(content: str, limit: int = 160) -> str:
     if len(content) <= limit:
         return content
     return content[:limit] + "..."
+
+
+def extract_graph_entity_candidates(content: str) -> Set[str]:
+    """Extract source-text spans that may form high-confidence shared entities."""
+    entities: Set[str] = set()
+    for run in re.findall(r"[\u4e00-\u9fff]{%d,}" % GRAPH_ENTITY_MIN_CHARS, content):
+        for size in range(GRAPH_ENTITY_MIN_CHARS, min(GRAPH_ENTITY_MAX_CHARS, len(run)) + 1):
+            for start in range(0, len(run) - size + 1):
+                entity = run[start:start + size]
+                if entity not in GRAPH_ENTITY_STOP_TERMS:
+                    entities.add(entity)
+    for token in re.findall(r"\b[A-Za-z][A-Za-z0-9_-]{1,}\b|\bP\d+\b", content):
+        entities.add(token.lower())
+    return entities
+
+
+def graph_entity_sort_key(entity: str):
+    return (0 if entity.endswith(GRAPH_ENTITY_PREFERRED_SUFFIXES) else 1, -len(entity), entity)
+
+
+def shared_entities_by_chunk(chunk_records: List[Dict[str, Any]]) -> Dict[str, List[str]]:
+    entity_chunks: Dict[str, Set[str]] = {}
+    for record in chunk_records:
+        chunk_id = str(record["chunkId"])
+        for entity in extract_graph_entity_candidates(record["content"]):
+            entity_chunks.setdefault(entity, set()).add(chunk_id)
+
+    shared_entities = {
+        entity for entity, chunk_ids in entity_chunks.items()
+        if len(chunk_ids) >= 2
+    }
+    by_chunk: Dict[str, List[str]] = {}
+    for record in chunk_records:
+        chunk_id = str(record["chunkId"])
+        entities = sorted(
+            (entity for entity in extract_graph_entity_candidates(record["content"]) if entity in shared_entities),
+            key=graph_entity_sort_key,
+        )
+        by_chunk[chunk_id] = entities[:12]
+    return by_chunk
+
+
+def build_graph_records(chunk_records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Create source-grounded document/chunk/entity edges for OpenSearch."""
+    entity_map = shared_entities_by_chunk(chunk_records)
+    edges: List[Dict[str, Any]] = []
+    records_by_file: Dict[str, List[Dict[str, Any]]] = {}
+    for record in chunk_records:
+        records_by_file.setdefault(str(record["fileId"]), []).append(record)
+
+    for file_id, records in records_by_file.items():
+        records.sort(key=lambda record: int(record["chunkIndex"]))
+        document_id = f"document:{file_id}"
+        for record in records:
+            chunk_id = str(record["chunkId"])
+            common = {
+                "fileId": file_id,
+                "filename": record["filename"],
+                "chunkId": chunk_id,
+                "chunkIndex": record["chunkIndex"],
+                "contentPreview": content_preview(record["content"]),
+            }
+            edges.append({
+                **common,
+                "edgeId": f"{document_id}:contains:{chunk_id}",
+                "relation": "CONTAINS",
+                "fromId": document_id,
+                "toId": chunk_id,
+                "fromType": "DOCUMENT",
+                "toType": "CHUNK",
+            })
+            for entity in entity_map.get(chunk_id, []):
+                edges.append({
+                    **common,
+                    "edgeId": f"{chunk_id}:mentions:{entity}",
+                    "relation": "MENTIONS",
+                    "fromId": chunk_id,
+                    "toId": f"entity:{entity}",
+                    "fromType": "CHUNK",
+                    "toType": "ENTITY",
+                    "entity": entity,
+                })
+        for current, following in zip(records, records[1:]):
+            edges.append({
+                "edgeId": f"{current['chunkId']}:next:{following['chunkId']}",
+                "relation": "NEXT_CHUNK",
+                "fromId": current["chunkId"],
+                "toId": following["chunkId"],
+                "fromType": "CHUNK",
+                "toType": "CHUNK",
+                "fileId": file_id,
+                "filename": current["filename"],
+                "chunkId": current["chunkId"],
+                "chunkIndex": current["chunkIndex"],
+                "contentPreview": content_preview(following["content"]),
+            })
+    return edges
+
+
+def is_relationship_query(query: str) -> bool:
+    return any(cue in query for cue in RELATION_QUERY_CUES)
+
+
+def filter_graph_seed_edges_by_query(query: str, edges: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    query_entities = extract_graph_entity_candidates(query)
+    matching_edges = [
+        edge for edge in edges
+        if edge.get("_source", {}).get("entity") in query_entities
+    ]
+    if not matching_edges:
+        return edges
+    best_key = min(graph_entity_sort_key(str(edge.get("_source", {}).get("entity", ""))) for edge in matching_edges)
+    return [
+        edge for edge in matching_edges
+        if graph_entity_sort_key(str(edge.get("_source", {}).get("entity", ""))) == best_key
+    ]
+
+
+def text_search_body(query: str, size: int) -> Dict[str, Any]:
+    return {
+        "size": size,
+        "query": {"match": {"content": query}},
+        "highlight": {
+            "fields": {"content": {}},
+            "pre_tags": ["<em>"],
+            "post_tags": ["</em>"],
+        },
+    }
+
+
+def vector_search_body(query_vector: List[float], size: int) -> Dict[str, Any]:
+    return {
+        "size": size,
+        "query": {
+            "knn": {
+                "contentVector": {
+                    "vector": query_vector,
+                    "k": size,
+                }
+            }
+        },
+    }
+
+
+def hit_chunk_id(hit: Dict[str, Any]) -> str:
+    source = hit.get("_source", {})
+    return str(source.get("chunkId") or hit.get("_id") or "")
+
+
+def fuse_ranked_hits(
+    text_hits: List[Dict[str, Any]],
+    vector_hits: List[Dict[str, Any]],
+    top_k: int,
+) -> List[Dict[str, Any]]:
+    """Fuse text and vector candidates with reciprocal rank fusion (RRF)."""
+    candidates: Dict[str, Dict[str, Any]] = {}
+
+    def add_hits(hits: List[Dict[str, Any]], rank_key: str, score_key: str) -> None:
+        for rank, hit in enumerate(hits, start=1):
+            chunk_id = hit_chunk_id(hit)
+            if not chunk_id:
+                continue
+            candidate = candidates.setdefault(
+                chunk_id,
+                {
+                    "hit": hit,
+                    "textRank": None,
+                    "vectorRank": None,
+                    "textScore": None,
+                    "vectorScore": None,
+                    "fusionScore": 0.0,
+                },
+            )
+            candidate[rank_key] = rank
+            candidate[score_key] = hit.get("_score")
+            candidate["fusionScore"] += 1.0 / (HYBRID_RRF_K + rank)
+
+    add_hits(text_hits, "textRank", "textScore")
+    add_hits(vector_hits, "vectorRank", "vectorScore")
+    return sorted(
+        candidates.values(),
+        key=lambda candidate: (
+            -candidate["fusionScore"],
+            min(rank for rank in [candidate["textRank"], candidate["vectorRank"]] if rank is not None),
+            hit_chunk_id(candidate["hit"]),
+        ),
+    )[:top_k]
+
+
+def format_search_result(
+    hit: Dict[str, Any],
+    rank: int,
+    text_rank: Optional[int] = None,
+    vector_rank: Optional[int] = None,
+    fusion_score: Optional[float] = None,
+    text_score: Optional[float] = None,
+    vector_score: Optional[float] = None,
+) -> Dict[str, Any]:
+    source = hit.get("_source", {})
+    highlight = hit.get("highlight", {}).get("content", [])
+    content = source.get("content", "") or ""
+    return {
+        "rank": rank,
+        "fileId": source.get("fileId"),
+        "filename": source.get("filename"),
+        "chunkId": source.get("chunkId"),
+        "chunkIndex": source.get("chunkIndex"),
+        "score": fusion_score if fusion_score is not None else hit.get("_score"),
+        "textRank": text_rank,
+        "vectorRank": vector_rank,
+        "fusionScore": fusion_score,
+        "textScore": text_score,
+        "vectorScore": vector_score,
+        "highlight": highlight[0] if highlight else None,
+        "content": content,
+        "contentPreview": content_preview(content),
+    }
+
+
+def decide_answer(mode: str, results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Return a small, inspectable answer decision without generating text."""
+    if not results:
+        return {
+            "status": "NO_ANSWER",
+            "reason": "no_retrieval_candidates",
+            "evidence": {"retrievedCount": 0},
+        }
+
+    if mode != "HYBRID":
+        return {
+            "status": "ANSWER",
+            "reason": "single_path_retrieval_not_gated",
+            "evidence": {"retrievedCount": len(results)},
+        }
+
+    text_scores = [
+        float(result["textScore"])
+        for result in results
+        if result.get("textScore") is not None
+    ]
+    max_text_score = max(text_scores, default=0.0)
+    supporting_chunks = sum(score >= NO_ANSWER_MIN_TEXT_SCORE for score in text_scores)
+    evidence = {
+        "retrievedCount": len(results),
+        "maxTextScore": max_text_score,
+        "minTextScore": NO_ANSWER_MIN_TEXT_SCORE,
+        "supportingChunkCount": supporting_chunks,
+    }
+    if supporting_chunks == 0:
+        return {
+            "status": "NO_ANSWER",
+            "reason": "insufficient_lexical_evidence",
+            "evidence": evidence,
+        }
+    return {
+        "status": "ANSWER",
+        "reason": "hybrid_lexical_evidence_above_threshold",
+        "evidence": evidence,
+    }
+
+
+def build_citations(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    citations = []
+    seen_chunk_ids = set()
+    for result in results:
+        chunk_id = result.get("chunkId")
+        if not chunk_id or chunk_id in seen_chunk_ids:
+            continue
+        seen_chunk_ids.add(chunk_id)
+        citations.append({
+            "citationId": len(citations) + 1,
+            "fileId": result.get("fileId"),
+            "filename": result.get("filename"),
+            "chunkId": chunk_id,
+            "chunkIndex": result.get("chunkIndex"),
+            "contentPreview": result.get("contentPreview"),
+        })
+        if len(citations) >= ASK_MAX_CITATIONS:
+            break
+    return citations
+
+
+def build_answer_context(citations: List[Dict[str, Any]], results: List[Dict[str, Any]]) -> str:
+    content_by_chunk_id = {result.get("chunkId"): result.get("content", "") for result in results}
+    sections = []
+    remaining = ASK_CONTEXT_CHAR_LIMIT
+    for citation in citations:
+        content = str(content_by_chunk_id.get(citation["chunkId"], ""))
+        if not content or remaining <= 0:
+            continue
+        excerpt = content[:remaining]
+        sections.append(f"[{citation['filename']}#{citation['chunkId']}]\n{excerpt}")
+        remaining -= len(excerpt)
+    return "\n\n".join(sections)
+
+
+def compose_grounded_answer(
+    question: str,
+    retrieval: Dict[str, Any],
+    generator: Optional[AnswerGenerator] = None,
+) -> Dict[str, Any]:
+    if retrieval.get("decision") != "ANSWER":
+        return {
+            "answer": "No grounded answer is available in the knowledge base.",
+            "answerMode": "NO_ANSWER",
+            "answerReason": retrieval.get("decisionReason"),
+            "citations": [],
+        }
+
+    results = retrieval.get("results", [])
+    citations = build_citations(results)
+    if not citations:
+        return {
+            "answer": "No grounded answer is available in the knowledge base.",
+            "answerMode": "NO_ANSWER",
+            "answerReason": "no_citable_evidence",
+            "citations": [],
+        }
+
+    context = build_answer_context(citations, results)
+    if generator is not None:
+        try:
+            return {
+                "answer": generator.generate(question, context),
+                "answerMode": "LLM",
+                "answerReason": "grounded_llm_completion",
+                "citations": citations,
+            }
+        except RuntimeError:
+            pass
+
+    first_citation = citations[0]
+    return {
+        "answer": f"Evidence from {first_citation['filename']}: {first_citation['contentPreview']}",
+        "answerMode": "EXTRACTIVE",
+        "answerReason": "llm_not_configured_or_unavailable",
+        "citations": citations,
+    }
+
+
+def get_answer_generator() -> Optional[AnswerGenerator]:
+    if not (LLM_API_URL and LLM_API_KEY and LLM_MODEL):
+        return None
+    return OpenAICompatibleAnswerGenerator()
 
 
 @app.get("/health")
@@ -283,7 +791,7 @@ def reindex(fileId: Optional[str] = None):
             raise HTTPException(status_code=404, detail=f"fileId not found: {fileId}")
 
     rebuild_file_ids = [str(f.get("fileId")) for f in files if f.get("fileId")]
-    deleted_chunks = delete_chunks_for_file_ids(client, rebuild_file_ids)
+    deleted_chunks = delete_chunks_for_file_ids(client, INDEX_NAME, rebuild_file_ids)
 
     # build bulk actions
     bulk_lines: List[str] = []
@@ -320,13 +828,185 @@ def reindex(fileId: Optional[str] = None):
     client.indices.refresh(index=INDEX_NAME)
     return {"ok": True, "indexedChunks": total_chunks, "deletedChunks": deleted_chunks, "index": INDEX_NAME}
 
-def vector_rebuild_stub(fileId: Optional[str] = None) -> Dict[str, Any]:
-    """
-    Demo placeholder:
-    - In full system, this would call a vector service (embedding + upsert).
-    - Here we just return a stub response so the mode switch is demonstrable.
-    """
-    return {"ok": True, "mode": "VECTOR", "message": "vector rebuild is stubbed in demo", "fileId": fileId}
+
+def vector_reindex(fileId: Optional[str] = None):
+    """Build a separate OpenSearch k-NN index from uploaded source files."""
+    ensure_dirs()
+    client = connect_os()
+    create_vector_index_if_needed(client)
+
+    meta = load_meta()
+    files = meta.get("files", [])
+    if fileId:
+        files = [f for f in files if f.get("fileId") == fileId]
+        if not files:
+            raise HTTPException(status_code=404, detail=f"fileId not found: {fileId}")
+
+    rebuild_file_ids = [str(f.get("fileId")) for f in files if f.get("fileId")]
+    deleted_chunks = delete_chunks_for_file_ids(client, VECTOR_INDEX_NAME, rebuild_file_ids)
+
+    chunk_records = []
+    for f in files:
+        path = Path(f["path"])
+        if not path.exists():
+            continue
+        text = clean_text(extract_text(path))
+        for i, content in enumerate(split_chunks(text, CHUNK_SIZE, CHUNK_OVERLAP)):
+            chunk_records.append({
+                "fileId": f["fileId"],
+                "filename": f["filename"],
+                "chunkId": f'{f["fileId"]}:{i}',
+                "chunkIndex": i,
+                "content": content,
+            })
+
+    if not chunk_records:
+        return {
+            "ok": True,
+            "indexedChunks": 0,
+            "deletedChunks": deleted_chunks,
+            "index": VECTOR_INDEX_NAME,
+            "embeddingModel": EMBEDDING_MODEL,
+            "embeddingDimension": EMBEDDING_DIMENSION,
+        }
+
+    vectors = embed_texts([record["content"] for record in chunk_records])
+    bulk_lines: List[str] = []
+    for record, vector in zip(chunk_records, vectors):
+        bulk_lines.append(json.dumps({"index": {"_index": VECTOR_INDEX_NAME, "_id": record["chunkId"]}}, ensure_ascii=False))
+        bulk_lines.append(json.dumps({
+            **record,
+            "embeddingModel": EMBEDDING_MODEL,
+            "contentVector": vector,
+        }, ensure_ascii=False))
+
+    resp = client.bulk(
+        body="\n".join(bulk_lines) + "\n",
+        headers={"Content-Type": "application/x-ndjson"},
+    )
+    if resp.get("errors"):
+        raise HTTPException(status_code=500, detail="vector bulk index returned errors=true")
+
+    client.indices.refresh(index=VECTOR_INDEX_NAME)
+    return {
+        "ok": True,
+        "indexedChunks": len(chunk_records),
+        "deletedChunks": deleted_chunks,
+        "index": VECTOR_INDEX_NAME,
+        "embeddingModel": EMBEDDING_MODEL,
+        "embeddingDimension": EMBEDDING_DIMENSION,
+    }
+
+
+def graph_reindex(fileId: Optional[str] = None):
+    """Build source-grounded document, chunk, and shared-entity graph edges."""
+    ensure_dirs()
+    client = connect_os()
+    create_graph_index_if_needed(client)
+
+    files = load_meta().get("files", [])
+    if fileId:
+        files = [file for file in files if file.get("fileId") == fileId]
+        if not files:
+            raise HTTPException(status_code=404, detail=f"fileId not found: {fileId}")
+
+    rebuild_file_ids = [str(file.get("fileId")) for file in files if file.get("fileId")]
+    deleted_edges = delete_chunks_for_file_ids(client, GRAPH_INDEX_NAME, rebuild_file_ids)
+    chunk_records = []
+    for file in files:
+        path = Path(file["path"])
+        if not path.exists():
+            continue
+        text = clean_text(extract_text(path))
+        for index, content in enumerate(split_chunks(text, CHUNK_SIZE, CHUNK_OVERLAP)):
+            chunk_records.append({
+                "fileId": file["fileId"],
+                "filename": file["filename"],
+                "chunkId": f'{file["fileId"]}:{index}',
+                "chunkIndex": index,
+                "content": content,
+            })
+
+    graph_records = build_graph_records(chunk_records)
+    if not graph_records:
+        return {"ok": True, "indexedEdges": 0, "deletedEdges": deleted_edges, "index": GRAPH_INDEX_NAME}
+
+    bulk_lines: List[str] = []
+    for record in graph_records:
+        bulk_lines.append(json.dumps({"index": {"_index": GRAPH_INDEX_NAME, "_id": record["edgeId"]}}, ensure_ascii=False))
+        bulk_lines.append(json.dumps(record, ensure_ascii=False))
+    response = client.bulk(
+        body="\n".join(bulk_lines) + "\n",
+        headers={"Content-Type": "application/x-ndjson"},
+    )
+    if response.get("errors"):
+        raise HTTPException(status_code=500, detail="graph bulk index returned errors=true")
+    client.indices.refresh(index=GRAPH_INDEX_NAME)
+    return {"ok": True, "indexedEdges": len(graph_records), "deletedEdges": deleted_edges, "index": GRAPH_INDEX_NAME}
+
+
+def graph_expand(client: OpenSearch, query: str, seed_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not client.indices.exists(GRAPH_INDEX_NAME):
+        return []
+    seed_chunk_ids = [
+        str(result["chunkId"])
+        for result in seed_results[:GRAPH_SEED_LIMIT]
+        if result.get("chunkId")
+    ]
+    if not seed_chunk_ids:
+        return []
+
+    seed_edges = client.search(
+        index=GRAPH_INDEX_NAME,
+        body={
+            "size": GRAPH_MAX_PATHS,
+            "query": {"bool": {"filter": [
+                {"terms": {"fromId": seed_chunk_ids}},
+                {"term": {"relation": "MENTIONS"}},
+            ]}},
+        },
+    ).get("hits", {}).get("hits", [])
+    seed_edges = filter_graph_seed_edges_by_query(query, seed_edges)
+    entity_ids = [edge.get("_source", {}).get("toId") for edge in seed_edges]
+    entity_ids = [entity_id for entity_id in entity_ids if entity_id]
+    if not entity_ids:
+        return []
+
+    target_edges = client.search(
+        index=GRAPH_INDEX_NAME,
+        body={
+            "size": GRAPH_MAX_PATHS * 2,
+            "query": {"bool": {"filter": [
+                {"terms": {"toId": entity_ids}},
+                {"term": {"relation": "MENTIONS"}},
+            ]}},
+        },
+    ).get("hits", {}).get("hits", [])
+    paths: List[Dict[str, Any]] = []
+    seen = set()
+    for seed_edge in seed_edges:
+        seed = seed_edge.get("_source", {})
+        for target_edge in target_edges:
+            target = target_edge.get("_source", {})
+            if target.get("toId") != seed.get("toId") or target.get("fromId") == seed.get("fromId"):
+                continue
+            key = (seed.get("fromId"), target.get("fromId"), seed.get("entity"))
+            if key in seen:
+                continue
+            seen.add(key)
+            paths.append({
+                "relation": "MENTIONS",
+                "entity": seed.get("entity"),
+                "fromChunkId": seed.get("fromId"),
+                "fromFilename": seed.get("filename"),
+                "toChunkId": target.get("fromId"),
+                "filename": target.get("filename"),
+                "chunkIndex": target.get("chunkIndex"),
+                "evidence": target.get("contentPreview"),
+            })
+            if len(paths) >= GRAPH_MAX_PATHS:
+                return paths
+    return paths
 
 
 @app.post("/index/rebuild")
@@ -334,8 +1014,8 @@ def index_rebuild(fileId: Optional[str] = None):
     """
     Rebuild/reconstruct index by indexMode:
     - TEXT   -> OpenSearch full-text reindex (existing /reindex)
-    - VECTOR -> vector rebuild (stub in demo)
-    - HYBRID -> both
+    - VECTOR -> vector rebuild (embedding + k-NN index)
+    - HYBRID -> text, vector, and source-grounded graph rebuild
     """
     cfg = load_config()
     mode = (cfg.get("indexMode") or "TEXT").upper()
@@ -346,43 +1026,98 @@ def index_rebuild(fileId: Optional[str] = None):
         out["steps"]["text"] = reindex(fileId=fileId)
 
     if mode in ["VECTOR", "HYBRID"]:
-        out["steps"]["vector"] = vector_rebuild_stub(fileId=fileId)
+        out["steps"]["vector"] = vector_reindex(fileId=fileId)
+
+    if mode == "HYBRID":
+        out["steps"]["graph"] = graph_reindex(fileId=fileId)
 
     return out
 
 @app.get("/search")
-def search(q: str = Query(..., min_length=1), topK: int = Query(10, ge=1, le=50)):
+def search(
+    q: str = Query(..., min_length=1),
+    topK: int = Query(10, ge=1, le=50),
+    mode: str = Query("TEXT"),
+):
     client = connect_os()
-    if not client.indices.exists(INDEX_NAME):
-        raise HTTPException(status_code=404, detail=f"index not found: {INDEX_NAME}")
+    mode = mode.upper()
+    if mode not in ["TEXT", "VECTOR", "HYBRID"]:
+        raise HTTPException(status_code=400, detail="mode must be TEXT | VECTOR | HYBRID")
 
-    body = {
-        "size": topK,
-        "query": {"match": {"content": q}},
-        "highlight": {
-            "fields": {"content": {}},
-            "pre_tags": ["<em>"],
-            "post_tags": ["</em>"],
-        },
+    required_indexes = [INDEX_NAME] if mode == "TEXT" else [VECTOR_INDEX_NAME]
+    if mode == "HYBRID":
+        required_indexes = [INDEX_NAME, VECTOR_INDEX_NAME]
+    missing_indexes = [index_name for index_name in required_indexes if not client.indices.exists(index_name)]
+    if missing_indexes:
+        raise HTTPException(status_code=404, detail=f"index not found: {', '.join(missing_indexes)}")
+
+    response: Dict[str, Any] = {
+        "q": q,
+        "mode": mode,
+        "topK": topK,
+        "embeddingModel": EMBEDDING_MODEL if mode in ["VECTOR", "HYBRID"] else None,
     }
+    if mode == "TEXT":
+        hits = client.search(index=INDEX_NAME, body=text_search_body(q, topK)).get("hits", {}).get("hits", [])
+        results = [format_search_result(hit, rank, text_rank=rank) for rank, hit in enumerate(hits, start=1)]
+    elif mode == "VECTOR":
+        query_vector = embed_texts([q])[0]
+        hits = client.search(
+            index=VECTOR_INDEX_NAME,
+            body=vector_search_body(query_vector, topK),
+        ).get("hits", {}).get("hits", [])
+        results = [format_search_result(hit, rank, vector_rank=rank) for rank, hit in enumerate(hits, start=1)]
+    else:
+        candidate_k = max(topK, HYBRID_CANDIDATE_K)
+        query_vector = embed_texts([q])[0]
+        text_hits = client.search(
+            index=INDEX_NAME,
+            body=text_search_body(q, candidate_k),
+        ).get("hits", {}).get("hits", [])
+        vector_hits = client.search(
+            index=VECTOR_INDEX_NAME,
+            body=vector_search_body(query_vector, candidate_k),
+        ).get("hits", {}).get("hits", [])
+        fused_candidates = fuse_ranked_hits(text_hits, vector_hits, topK)
+        results = [
+            format_search_result(
+                candidate["hit"],
+                rank,
+                text_rank=candidate["textRank"],
+                vector_rank=candidate["vectorRank"],
+                fusion_score=candidate["fusionScore"],
+                text_score=candidate["textScore"],
+                vector_score=candidate["vectorScore"],
+            )
+            for rank, candidate in enumerate(fused_candidates, start=1)
+        ]
+        response.update({"candidateK": candidate_k, "rrfK": HYBRID_RRF_K})
 
-    resp = client.search(index=INDEX_NAME, body=body)
-    hits = resp.get("hits", {}).get("hits", [])
-    results = []
-    for rank, h in enumerate(hits, start=1):
-        src = h.get("_source", {})
-        hl = h.get("highlight", {}).get("content", [])
-        content = src.get("content", "") or ""
-        results.append({
-            "rank": rank,
-            "fileId": src.get("fileId"),
-            "filename": src.get("filename"),
-            "chunkId": src.get("chunkId"),
-            "chunkIndex": src.get("chunkIndex"),
-            "score": h.get("_score"),
-            "highlight": hl[0] if hl else None,
-            "content": content,
-            "contentPreview": content_preview(content),
-        })
+    decision = decide_answer(mode, results)
+    graph_routed = mode == "HYBRID" and decision["status"] == "ANSWER" and is_relationship_query(q)
+    graph_evidence = graph_expand(client, q, results) if graph_routed else []
+    response.update({
+        "decision": decision["status"],
+        "decisionReason": decision["reason"],
+        "decisionEvidence": decision["evidence"],
+        "retrievedCount": len(results),
+        "count": len(results) if decision["status"] == "ANSWER" else 0,
+        "results": results if decision["status"] == "ANSWER" else [],
+        "graphRouted": graph_routed,
+        "graphEvidence": graph_evidence,
+    })
+    return response
 
-    return {"q": q, "mode": "TEXT", "topK": topK, "count": len(results), "results": results}
+
+@app.post("/ask")
+def ask(body: Dict[str, Any]):
+    question = body.get("q")
+    if not isinstance(question, str) or not question.strip():
+        raise HTTPException(status_code=400, detail="q must be a non-empty string")
+    requested_top_k = body.get("topK", 5)
+    if not isinstance(requested_top_k, int) or isinstance(requested_top_k, bool) or not 1 <= requested_top_k <= 50:
+        raise HTTPException(status_code=400, detail="topK must be an integer from 1 to 50")
+
+    retrieval = search(q=question.strip(), topK=requested_top_k, mode="HYBRID")
+    answer = compose_grounded_answer(question.strip(), retrieval, get_answer_generator())
+    return {**retrieval, **answer}
