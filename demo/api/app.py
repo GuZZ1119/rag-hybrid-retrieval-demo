@@ -2,6 +2,8 @@ import os
 import re
 import uuid
 import json
+import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Protocol, Set
 from urllib.error import HTTPError, URLError
@@ -19,6 +21,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 UPLOAD_DIR = DATA_DIR / "uploads"
 META_PATH = DATA_DIR / "meta.json"
 CONFIG_PATH = DATA_DIR / "config.json"
+ASK_EVENT_LOG_PATH = DATA_DIR / "ask_events.jsonl"
 
 OPENSEARCH_URL = os.getenv("OPENSEARCH_URL", "http://opensearch:9200")
 INDEX_NAME = os.getenv("OPENSEARCH_INDEX", "kb_demo_chunks")
@@ -166,6 +169,74 @@ def load_config() -> Dict[str, Any]:
 
 def save_config(cfg: Dict[str, Any]) -> None:
     CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def append_ask_event(event: Dict[str, Any]) -> None:
+    ensure_dirs()
+    with ASK_EVENT_LOG_PATH.open("a", encoding="utf-8") as log_file:
+        log_file.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+
+def load_ask_events() -> List[Dict[str, Any]]:
+    if not ASK_EVENT_LOG_PATH.exists():
+        return []
+    events = []
+    for line in ASK_EVENT_LOG_PATH.read_text(encoding="utf-8").splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
+def query_fingerprint(question: str) -> str:
+    return hashlib.sha256(question.encode("utf-8")).hexdigest()[:16]
+
+
+def utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def record_ask_event(request_id: str, question: str, response: Dict[str, Any]) -> None:
+    append_ask_event({
+        "eventType": "ask",
+        "timestamp": utc_timestamp(),
+        "requestId": request_id,
+        "queryFingerprint": query_fingerprint(question),
+        "queryLength": len(question),
+        "decision": response.get("decision"),
+        "answerMode": response.get("answerMode"),
+        "retrievedCount": response.get("retrievedCount", 0),
+        "citationCount": len(response.get("citations", [])),
+        "graphRouted": bool(response.get("graphRouted")),
+    })
+
+
+def request_id_exists(request_id: str) -> bool:
+    return any(
+        event.get("eventType") == "ask" and event.get("requestId") == request_id
+        for event in load_ask_events()
+    )
+
+
+def feedback_summary() -> Dict[str, Any]:
+    events = load_ask_events()
+    ask_events = [event for event in events if event.get("eventType") == "ask"]
+    feedback_events = [event for event in events if event.get("eventType") == "feedback"]
+    positive_feedback = sum(event.get("rating") == "UP" for event in feedback_events)
+    negative_feedback = sum(event.get("rating") == "DOWN" for event in feedback_events)
+    answered = sum(event.get("decision") == "ANSWER" for event in ask_events)
+    return {
+        "askCount": len(ask_events),
+        "answerCount": answered,
+        "noAnswerCount": len(ask_events) - answered,
+        "feedbackCount": len(feedback_events),
+        "positiveFeedbackCount": positive_feedback,
+        "negativeFeedbackCount": negative_feedback,
+        "positiveFeedbackRate": positive_feedback / len(feedback_events) if feedback_events else None,
+    }
 
 def connect_os() -> OpenSearch:
     # OpenSearch security plugin disabled in compose, so no auth.
@@ -1120,4 +1191,30 @@ def ask(body: Dict[str, Any]):
 
     retrieval = search(q=question.strip(), topK=requested_top_k, mode="HYBRID")
     answer = compose_grounded_answer(question.strip(), retrieval, get_answer_generator())
-    return {**retrieval, **answer}
+    response = {**retrieval, **answer, "requestId": str(uuid.uuid4())}
+    record_ask_event(response["requestId"], question.strip(), response)
+    return response
+
+
+@app.post("/feedback")
+def submit_feedback(body: Dict[str, Any]):
+    request_id = body.get("requestId")
+    rating = body.get("rating")
+    if not isinstance(request_id, str) or not request_id or len(request_id) > 128:
+        raise HTTPException(status_code=400, detail="requestId must be a non-empty string up to 128 characters")
+    if rating not in {"UP", "DOWN"}:
+        raise HTTPException(status_code=400, detail="rating must be UP or DOWN")
+    if not request_id_exists(request_id):
+        raise HTTPException(status_code=404, detail="requestId not found")
+    append_ask_event({
+        "eventType": "feedback",
+        "timestamp": utc_timestamp(),
+        "requestId": request_id,
+        "rating": rating,
+    })
+    return {"ok": True, "requestId": request_id, "rating": rating}
+
+
+@app.get("/feedback/summary")
+def get_feedback_summary():
+    return feedback_summary()
