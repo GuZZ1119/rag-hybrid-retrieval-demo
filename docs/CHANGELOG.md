@@ -4,6 +4,13 @@ This file records project delivery commits with the date and the completed work.
 
 ## 2026-08-09 23:20 AEST
 
+- Expanded the fixed Golden Set from 20 to 64 labelled cases: 22 keyword, 14 paraphrase, 10 relationship, and 18 negative queries.
+- Added realistic challenge fixtures and scenario labels for version conflicts, cross-document evidence, distractors, and multi-condition questions.
+- Added scenario validation and report metadata so the challenge mix is visible and reproducible.
+- Recorded the first expanded Docker HYBRID ask baseline: `Recall@3=100%`, `Recall@5=100%`, `MRR@10=0.931`, `Negative no-answer rate=16.7%`, and `Graph evidence coverage=40.0%`. These are explicit calibration targets for the next push.
+
+## 2026-08-09 23:20 AEST
+
 - Routed the OpenSearch evidence graph for relationship queries and BM25/vector candidate disagreement, with an explicit route reason and overlap count.
 - Resolved graph targets back to original text chunks and included them as a lower-weight third RRF candidate source with `graphRank` provenance, without re-scoring chunks that already have direct evidence.
 - Extended privacy-minimized ask telemetry with latency, route metadata, and rank snapshots; added the `GET /feedback/review-queue` endpoint for `NO_ANSWER` and negative-feedback review cases.

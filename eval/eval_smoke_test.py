@@ -11,8 +11,9 @@ import run_retrieval_eval as evaluator
 
 def main() -> None:
     items = evaluator.load_dataset(evaluator.DEFAULT_DATASET)
-    assert len(items) == 20
+    assert len(items) == 64
     assert {item["category"] for item in items} == {"keyword", "paraphrase", "relationship", "negative"}
+    assert {item["scenario"] for item in items} == evaluator.SCENARIOS
 
     positive = next(item for item in items if item["id"] == "incident-p1-escalation")
     relevant_result = {

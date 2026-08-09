@@ -261,9 +261,9 @@ Future reranking integration / 后续重排能力扩展
 
 ## Retrieval Evaluation / 检索回测
 
-The repository includes a small fixed evaluation set for measuring retrieval changes before vector, hybrid, or graph retrieval is introduced. The current baseline evaluates the `TEXT` search path.
+The repository includes a fixed, synthetic and anonymized challenge set for measuring retrieval changes. It currently contains 64 labelled cases across keyword, paraphrase, cross-document relationship, version-conflict, distractor, multi-condition, and negative-query scenarios.
 
-仓库提供一套小型固定题集，用于在引入向量、混合检索或图谱检索前后比较检索质量。当前基线评测的是 `TEXT` 搜索路径。
+仓库提供一套固定的合成脱敏挑战题集，用于比较检索改动前后的质量。当前共有 64 条带标注样本，覆盖关键词、改写、跨文档关系、版本冲突、干扰文档、多条件与负例场景。
 
 From the `demo` directory, run:
 
@@ -287,7 +287,7 @@ python eval/run_retrieval_eval.py --validate-only
 python eval/eval_smoke_test.py
 ```
 
-The fixtures are intentionally synthetic and should be used with a clean demo data volume, not a real knowledge base.
+The fixtures are intentionally synthetic and should be used with a clean demo data volume, not a real knowledge base. See `eval/README.md` for the challenge-set design and its current diagnostic baseline.
 
 ## Vector Retrieval / 向量检索
 

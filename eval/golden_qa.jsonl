@@ -1,20 +1,64 @@
-{"id":"procurement-approval-threshold","category":"keyword","query":"采购金额超过五千元需要谁审批？","expected_file":"procurement_policy.txt","expected_terms":["5000","部门负责人"]}
-{"id":"procurement-contract","category":"keyword","query":"没有合同可以付款吗？","expected_file":"procurement_policy.txt","expected_terms":["合同","付款"],"difficulty":"challenge"}
-{"id":"procurement-device-request","category":"keyword","query":"申请办公设备要提交什么？","expected_file":"procurement_policy.txt","expected_terms":["设备领用申请","采购申请"]}
-{"id":"reimbursement-invoice-deadline","category":"keyword","query":"报销发票最晚多久提交？","expected_file":"reimbursement_policy.txt","expected_terms":["30","发票"]}
-{"id":"reimbursement-purchase-link","category":"relationship","query":"报销为什么需要关联采购申请？","expected_file":"reimbursement_policy.txt","expected_terms":["采购申请","报销"],"expected_graph_entities":["采购申请"],"difficulty":"challenge"}
-{"id":"reimbursement-travel-evidence","category":"keyword","query":"出差交通费报销需要哪些票据？","expected_file":"reimbursement_policy.txt","expected_terms":["交通票据","行程单"]}
-{"id":"incident-p1-escalation","category":"keyword","query":"P1 事故多久升级？","expected_file":"incident_response_guide.txt","expected_terms":["P1","15分钟"]}
-{"id":"incident-postmortem","category":"keyword","query":"事故复盘报告什么时候完成？","expected_file":"incident_response_guide.txt","expected_terms":["3个工作日","复盘报告"]}
-{"id":"incident-owner","category":"paraphrase","query":"严重线上故障由谁负责协调？","expected_file":"incident_response_guide.txt","expected_terms":["事故指挥官","P1"],"difficulty":"challenge"}
-{"id":"remote-access","category":"keyword","query":"远程访问公司资源需要什么安全措施？","expected_file":"remote_work_policy.txt","expected_terms":["VPN","多因素认证"]}
-{"id":"remote-personal-device","category":"keyword","query":"个人电脑能处理客户数据吗？","expected_file":"remote_work_policy.txt","expected_terms":["个人设备","客户数据"]}
-{"id":"negative-cafeteria","category":"negative","query":"公司食堂补贴标准是什么？","expected_file":null,"expected_terms":[]}
-{"id":"procurement-approval-paraphrase","category":"paraphrase","query":"大额采购找谁点头？","expected_file":"procurement_policy.txt","expected_terms":["5000","部门负责人"]}
-{"id":"reimbursement-deadline-paraphrase","category":"paraphrase","query":"费用报销过了一个月还能交吗？","expected_file":"reimbursement_policy.txt","expected_terms":["30","发票"]}
-{"id":"incident-severity-paraphrase","category":"paraphrase","query":"核心业务大面积不可用属于哪一级故障？","expected_file":"incident_response_guide.txt","expected_terms":["P1","核心业务"]}
-{"id":"remote-access-paraphrase","category":"paraphrase","query":"在家连内部系统怎么做身份验证？","expected_file":"remote_work_policy.txt","expected_terms":["VPN","多因素认证"],"difficulty":"challenge"}
-{"id":"reimbursement-procurement-sequence","category":"relationship","query":"采购费用为什么要先走审批再申请报销？","expected_file":"reimbursement_policy.txt","expected_terms":["采购申请","报销"],"expected_graph_entities":["采购申请"]}
-{"id":"negative-gym-benefit","category":"negative","query":"公司是否提供健身房补贴？","expected_file":null,"expected_terms":[]}
-{"id":"negative-annual-leave","category":"negative","query":"公司年假有几天？","expected_file":null,"expected_terms":[]}
-{"id":"negative-commute-benefit","category":"negative","query":"员工通勤补贴怎么申请？","expected_file":null,"expected_terms":[]}
+{"id":"procurement-approval-threshold","category":"keyword","scenario":"baseline","difficulty":"standard","query":"采购金额超过五千元需要谁审批？","expected_file":"procurement_policy.txt","expected_terms":["5000","部门负责人"]}
+{"id":"procurement-contract","category":"keyword","scenario":"distractor","difficulty":"challenge","query":"没有合同可以付款吗？","expected_file":"procurement_policy.txt","expected_terms":["合同","付款"]}
+{"id":"procurement-device-request","category":"keyword","scenario":"baseline","difficulty":"standard","query":"申请办公设备要提交什么？","expected_file":"procurement_policy.txt","expected_terms":["设备领用申请","采购申请"]}
+{"id":"reimbursement-invoice-deadline","category":"keyword","scenario":"baseline","difficulty":"standard","query":"报销发票最晚多久提交？","expected_file":"reimbursement_policy.txt","expected_terms":["30","发票"]}
+{"id":"reimbursement-purchase-link","category":"relationship","scenario":"cross_document","difficulty":"challenge","query":"报销为什么需要关联采购申请？","expected_file":"reimbursement_policy.txt","expected_terms":["采购申请","报销"],"expected_graph_entities":["采购申请"]}
+{"id":"reimbursement-travel-evidence","category":"keyword","scenario":"baseline","difficulty":"standard","query":"出差交通费报销需要哪些票据？","expected_file":"reimbursement_policy.txt","expected_terms":["交通票据","行程单"]}
+{"id":"incident-p1-escalation","category":"keyword","scenario":"baseline","difficulty":"standard","query":"P1 事故多久升级？","expected_file":"incident_response_guide.txt","expected_terms":["P1","15分钟"]}
+{"id":"incident-postmortem","category":"keyword","scenario":"baseline","difficulty":"standard","query":"事故复盘报告什么时候完成？","expected_file":"incident_response_guide.txt","expected_terms":["3个工作日","复盘报告"]}
+{"id":"incident-owner","category":"paraphrase","scenario":"semantic","difficulty":"challenge","query":"严重线上故障由谁负责协调？","expected_file":"incident_response_guide.txt","expected_terms":["事故指挥官","P1"]}
+{"id":"remote-access","category":"keyword","scenario":"baseline","difficulty":"standard","query":"远程访问公司资源需要什么安全措施？","expected_file":"remote_work_policy.txt","expected_terms":["VPN","多因素认证"]}
+{"id":"remote-personal-device","category":"keyword","scenario":"baseline","difficulty":"standard","query":"个人电脑能处理客户数据吗？","expected_file":"remote_work_policy.txt","expected_terms":["个人设备","客户数据"]}
+{"id":"negative-cafeteria","category":"negative","scenario":"negative","difficulty":"standard","query":"公司食堂补贴标准是什么？","expected_file":null,"expected_terms":[]}
+{"id":"procurement-approval-paraphrase","category":"paraphrase","scenario":"semantic","difficulty":"standard","query":"大额采购找谁点头？","expected_file":"procurement_policy.txt","expected_terms":["5000","部门负责人"]}
+{"id":"reimbursement-deadline-paraphrase","category":"paraphrase","scenario":"semantic","difficulty":"standard","query":"费用报销过了一个月还能交吗？","expected_file":"reimbursement_policy.txt","expected_terms":["30","发票"]}
+{"id":"incident-severity-paraphrase","category":"paraphrase","scenario":"semantic","difficulty":"standard","query":"核心业务大面积不可用属于哪一级故障？","expected_file":"incident_response_guide.txt","expected_terms":["P1","核心业务"]}
+{"id":"remote-access-paraphrase","category":"paraphrase","scenario":"semantic","difficulty":"challenge","query":"在家连内部系统怎么做身份验证？","expected_file":"remote_work_policy.txt","expected_terms":["VPN","多因素认证"]}
+{"id":"reimbursement-procurement-sequence","category":"relationship","scenario":"cross_document","difficulty":"standard","query":"采购费用为什么要先走审批再申请报销？","expected_file":"reimbursement_policy.txt","expected_terms":["采购申请","报销"],"expected_graph_entities":["采购申请"]}
+{"id":"negative-gym-benefit","category":"negative","scenario":"negative","difficulty":"standard","query":"公司是否提供健身房补贴？","expected_file":null,"expected_terms":[]}
+{"id":"negative-annual-leave","category":"negative","scenario":"negative","difficulty":"standard","query":"公司年假有几天？","expected_file":null,"expected_terms":[]}
+{"id":"negative-commute-benefit","category":"negative","scenario":"negative","difficulty":"standard","query":"员工通勤补贴怎么申请？","expected_file":null,"expected_terms":[]}
+{"id":"procurement-2026-threshold","category":"keyword","scenario":"version_conflict","difficulty":"challenge","query":"2026 年单笔采购达到多少金额需要部门负责人审批？","expected_file":"procurement_policy_2026.txt","expected_terms":["2026","8000","部门负责人"]}
+{"id":"procurement-2026-finance","category":"keyword","scenario":"version_conflict","difficulty":"challenge","query":"2026 年采购到什么金额财务部复核预算科目？","expected_file":"procurement_policy_2026.txt","expected_terms":["30000","财务部"]}
+{"id":"procurement-2026-software-security","category":"keyword","scenario":"multi_condition","difficulty":"challenge","query":"软件订阅采购即使金额很低还需要什么安全步骤？","expected_file":"procurement_policy_2026.txt","expected_terms":["软件订阅","信息安全团队","安全评估"]}
+{"id":"travel-international-deadline","category":"keyword","scenario":"version_conflict","difficulty":"challenge","query":"国际差旅费用最晚多少天要提交？","expected_file":"travel_expense_addendum.txt","expected_terms":["国际差旅","15","报销申请"]}
+{"id":"travel-international-evidence","category":"keyword","scenario":"multi_condition","difficulty":"challenge","query":"国际出差报销除了交通票据和行程单还要什么证明？","expected_file":"travel_expense_addendum.txt","expected_terms":["交通票据","行程单","出入境行程证明"]}
+{"id":"access-exception-expiry","category":"keyword","scenario":"distractor","difficulty":"challenge","query":"外部支持人员的临时访问多久会失效？","expected_file":"access_exception_policy.txt","expected_terms":["临时访问","7 天"]}
+{"id":"access-exception-approval","category":"keyword","scenario":"multi_condition","difficulty":"challenge","query":"供应商临时访问测试环境需要谁审批？","expected_file":"access_exception_policy.txt","expected_terms":["供应商","信息安全团队","审批"]}
+{"id":"access-exception-production-data","category":"keyword","scenario":"distractor","difficulty":"challenge","query":"外部人员可以访问生产数据吗？","expected_file":"access_exception_policy.txt","expected_terms":["不得访问","生产数据"]}
+{"id":"retention-customer-records","category":"keyword","scenario":"baseline","difficulty":"standard","query":"客户数据访问申请和导出日志至少保存几年？","expected_file":"data_retention_policy.txt","expected_terms":["客户数据","2 年"]}
+{"id":"retention-p1-postmortem","category":"keyword","scenario":"baseline","difficulty":"challenge","query":"P1 事故复盘报告要保留多久？","expected_file":"data_retention_policy.txt","expected_terms":["P1","复盘报告","5 年"]}
+{"id":"change-standard-approval","category":"keyword","scenario":"baseline","difficulty":"standard","query":"生产常规变更实施前需要什么批准？","expected_file":"change_management_policy.txt","expected_terms":["变更工单","技术负责人","批准"]}
+{"id":"change-emergency-record","category":"keyword","scenario":"multi_condition","difficulty":"challenge","query":"P1 事故期间做紧急变更需要记录哪些内容？","expected_file":"change_management_policy.txt","expected_terms":["事故指挥官","变更原因","回滚方案"]}
+{"id":"vendor-security-assessment","category":"keyword","scenario":"distractor","difficulty":"standard","query":"新增供应商需要完成哪项安全检查？","expected_file":"vendor_onboarding_guide.txt","expected_terms":["供应商","信息安全评估"]}
+{"id":"procurement-2026-threshold-paraphrase","category":"paraphrase","scenario":"version_conflict","difficulty":"challenge","query":"新采购规则里八千以上由谁签字？","expected_file":"procurement_policy_2026.txt","expected_terms":["8000","部门负责人"]}
+{"id":"travel-international-paraphrase","category":"paraphrase","scenario":"version_conflict","difficulty":"challenge","query":"海外出差的费用报销窗口期是多久？","expected_file":"travel_expense_addendum.txt","expected_terms":["国际差旅","15","报销申请"]}
+{"id":"access-temporary-paraphrase","category":"paraphrase","scenario":"semantic","difficulty":"challenge","query":"给合作方开测试环境短期权限要满足什么条件？","expected_file":"access_exception_policy.txt","expected_terms":["外部支持人员","访问申请","信息安全团队"]}
+{"id":"access-expiry-paraphrase","category":"paraphrase","scenario":"semantic","difficulty":"challenge","query":"临时开通给厂商的账号会自动什么时候失效？","expected_file":"access_exception_policy.txt","expected_terms":["临时访问","7 天"]}
+{"id":"retention-customer-paraphrase","category":"paraphrase","scenario":"semantic","difficulty":"standard","query":"用户信息的访问和导出记录要存几年？","expected_file":"data_retention_policy.txt","expected_terms":["客户数据","2 年"]}
+{"id":"retention-incident-paraphrase","category":"paraphrase","scenario":"semantic","difficulty":"challenge","query":"线上重大事故的总结材料要保存多长时间？","expected_file":"data_retention_policy.txt","expected_terms":["P1","复盘报告","5 年"]}
+{"id":"change-production-paraphrase","category":"paraphrase","scenario":"semantic","difficulty":"standard","query":"上线修改前是不是要有变更单和负责人同意？","expected_file":"change_management_policy.txt","expected_terms":["变更工单","技术负责人"]}
+{"id":"change-emergency-paraphrase","category":"paraphrase","scenario":"semantic","difficulty":"challenge","query":"故障抢修时的紧急上线由谁留痕并写回滚计划？","expected_file":"change_management_policy.txt","expected_terms":["事故指挥官","回滚方案"]}
+{"id":"vendor-onboarding-paraphrase","category":"paraphrase","scenario":"semantic","difficulty":"standard","query":"要把新的合作商录入系统前，要收集哪些准入材料？","expected_file":"vendor_onboarding_guide.txt","expected_terms":["企业资质","联系人信息","服务范围"]}
+{"id":"procurement-payment-link","category":"relationship","scenario":"cross_document","difficulty":"challenge","query":"付款前为什么必须关联已批准的采购申请？","expected_file":"procurement_policy_2026.txt","expected_terms":["采购申请","付款"],"expected_graph_entities":["采购申请"]}
+{"id":"travel-deadline-link","category":"relationship","scenario":"cross_document","difficulty":"challenge","query":"国际差旅为什么不能按普通报销的三十天期限提交？","expected_file":"travel_expense_addendum.txt","expected_terms":["15","报销申请"],"expected_graph_entities":["报销申请"]}
+{"id":"external-data-link","category":"relationship","scenario":"cross_document","difficulty":"challenge","query":"外部支持人员为什么不能下载客户数据？","expected_file":"access_exception_policy.txt","expected_terms":["不得下载","客户数据"],"expected_graph_entities":["客户数据"]}
+{"id":"external-vpn-link","category":"relationship","scenario":"cross_document","difficulty":"challenge","query":"临时外部访问为何也必须使用 VPN 和多因素认证？","expected_file":"access_exception_policy.txt","expected_terms":["VPN","多因素认证"],"expected_graph_entities":["多因素认证"]}
+{"id":"incident-change-link","category":"relationship","scenario":"cross_document","difficulty":"challenge","query":"P1 紧急变更和事故指挥官有什么关系？","expected_file":"change_management_policy.txt","expected_terms":["P1","事故指挥官"],"expected_graph_entities":["事故指挥官"]}
+{"id":"incident-retention-link","category":"relationship","scenario":"cross_document","difficulty":"challenge","query":"事故复盘报告为什么需要保留更久？","expected_file":"data_retention_policy.txt","expected_terms":["复盘报告","5 年"],"expected_graph_entities":["复盘报告"]}
+{"id":"vendor-customer-data-link","category":"relationship","scenario":"cross_document","difficulty":"challenge","query":"供应商为什么不能保存生产客户数据？","expected_file":"vendor_onboarding_guide.txt","expected_terms":["客户数据","生产数据"],"expected_graph_entities":["客户数据"]}
+{"id":"vendor-access-link","category":"relationship","scenario":"cross_document","difficulty":"challenge","query":"供应商申请测试环境访问为什么还需要信息安全团队参与？","expected_file":"access_exception_policy.txt","expected_terms":["访问申请","信息安全团队"],"expected_graph_entities":["信息安全"]}
+{"id":"negative-parking","category":"negative","scenario":"negative","difficulty":"challenge","query":"员工停车费补贴每月有多少？","expected_file":null,"expected_terms":[]}
+{"id":"negative-training","category":"negative","scenario":"negative","difficulty":"challenge","query":"公司报销外部培训课程吗？","expected_file":null,"expected_terms":[]}
+{"id":"negative-parental-leave","category":"negative","scenario":"negative","difficulty":"standard","query":"育儿假可以休多少天？","expected_file":null,"expected_terms":[]}
+{"id":"negative-birthday","category":"negative","scenario":"negative","difficulty":"standard","query":"生日礼品怎么领取？","expected_file":null,"expected_terms":[]}
+{"id":"negative-stock","category":"negative","scenario":"negative","difficulty":"challenge","query":"员工股票期权的归属规则是什么？","expected_file":null,"expected_terms":[]}
+{"id":"negative-insurance","category":"negative","scenario":"negative","difficulty":"standard","query":"商业医疗保险报销比例是多少？","expected_file":null,"expected_terms":[]}
+{"id":"negative-relocation","category":"negative","scenario":"negative","difficulty":"challenge","query":"异地搬家费用可以申请补助吗？","expected_file":null,"expected_terms":[]}
+{"id":"negative-laptop-color","category":"negative","scenario":"negative","difficulty":"standard","query":"新员工可以选择笔记本电脑颜色吗？","expected_file":null,"expected_terms":[]}
+{"id":"negative-seat","category":"negative","scenario":"negative","difficulty":"standard","query":"办公室座位怎么预约？","expected_file":null,"expected_terms":[]}
+{"id":"negative-pet","category":"negative","scenario":"negative","difficulty":"standard","query":"公司允许带宠物上班吗？","expected_file":null,"expected_terms":[]}
+{"id":"negative-meal-card","category":"negative","scenario":"negative","difficulty":"challenge","query":"餐卡充值后可以提现吗？","expected_file":null,"expected_terms":[]}
+{"id":"negative-holiday-trip","category":"negative","scenario":"negative","difficulty":"challenge","query":"年会旅游费用由公司承担吗？","expected_file":null,"expected_terms":[]}
+{"id":"negative-product-price","category":"negative","scenario":"negative","difficulty":"standard","query":"公司产品的对外报价在哪里查询？","expected_file":null,"expected_terms":[]}
+{"id":"negative-referral","category":"negative","scenario":"negative","difficulty":"standard","query":"内推奖励如何发放？","expected_file":null,"expected_terms":[]}

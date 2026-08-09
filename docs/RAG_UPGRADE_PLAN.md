@@ -131,7 +131,7 @@ To keep the project achievable:
 
 - Use OpenSearch for both BM25 and vector search first.
 - Do not introduce a separate vector database until the OpenSearch path is complete.
-- Keep the first evaluation set small, around 20 to 50 questions.
+- Start with a compact 20-question baseline, then expand it to roughly 60 to 80 labelled challenge questions before treating quality metrics as portfolio evidence.
 - Keep LLM answer generation optional through environment variables.
 - Prefer transparent code over a heavy framework wrapper.
 - Add Neo4j only for the evidence-graph phase; keep OpenSearch responsible for text and vector search.

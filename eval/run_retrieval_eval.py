@@ -19,6 +19,7 @@ DEFAULT_DATASET = EVAL_DIR / "golden_qa.jsonl"
 DEFAULT_FIXTURE_DIR = EVAL_DIR / "fixtures"
 DEFAULT_REPORT = EVAL_DIR / "reports" / "latest.md"
 POSITIVE_CATEGORIES = {"keyword", "paraphrase", "relationship"}
+SCENARIOS = {"baseline", "cross_document", "distractor", "multi_condition", "negative", "semantic", "version_conflict"}
 REQUEST_TIMEOUT_SECONDS = 300
 
 
@@ -52,6 +53,7 @@ def validate_dataset(items: List[Dict[str, Any]]) -> None:
         expected_terms = item.get("expected_terms")
         expected_graph_entities = item.get("expected_graph_entities", [])
         difficulty = item.get("difficulty", "standard")
+        scenario = item.get("scenario")
 
         if not isinstance(item_id, str) or not item_id:
             raise ValueError("every item needs a non-empty string id")
@@ -68,6 +70,8 @@ def validate_dataset(items: List[Dict[str, Any]]) -> None:
             raise ValueError(f"{item_id}: expected_graph_entities must be a list of non-empty strings")
         if difficulty not in {"standard", "challenge"}:
             raise ValueError(f"{item_id}: difficulty must be standard or challenge")
+        if scenario not in SCENARIOS:
+            raise ValueError(f"{item_id}: scenario must be one of {', '.join(sorted(SCENARIOS))}")
 
         if category == "negative":
             if expected_file is not None or expected_terms:
@@ -225,6 +229,7 @@ def format_rate(value: float) -> str:
 
 def render_report(cases: List[Dict[str, Any]], metrics: Dict[str, Any], api_url: str, top_k: int, mode: str, endpoint: str = "search") -> str:
     category_counts = Counter(case["item"]["category"] for case in cases)
+    scenario_counts = Counter(case["item"]["scenario"] for case in cases)
     report_name = "BM25" if mode == "TEXT" else mode
     if endpoint == "ask":
         report_name = f"{report_name} Ask"
@@ -237,6 +242,7 @@ def render_report(cases: List[Dict[str, Any]], metrics: Dict[str, Any], api_url:
         f"- Search mode: `{mode}`",
         f"- Candidate depth: `{top_k}`",
         f"- Dataset: `{len(cases)}` cases ({', '.join(f'{name}: {count}' for name, count in sorted(category_counts.items()))})",
+        f"- Scenarios: {', '.join(f'{name}: {count}' for name, count in sorted(scenario_counts.items()))}",
         "",
         "| Metric | Result |",
         "| --- | --- |",
