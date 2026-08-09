@@ -161,6 +161,9 @@ def evaluate_item(item: Dict[str, Any], response: Dict[str, Any], top_k: int) ->
         "decisionReason": response.get("decisionReason"),
         "decisionEvidence": response.get("decisionEvidence", {}),
         "graphEvidence": response.get("graphEvidence", []),
+        "graphRouted": bool(response.get("graphRouted")),
+        "graphRouteReason": response.get("graphRouteReason"),
+        "graphCandidateMatch": any(result.get("graphRank") is not None for result in results[:top_k]),
         "graphEvidenceMatch": any(
             normalize(str(path.get("entity", ""))) in {normalize(entity) for entity in item.get("expected_graph_entities", [])}
             for path in response.get("graphEvidence", [])
@@ -200,6 +203,8 @@ def calculate_metrics(cases: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         metrics["negative_no_answer_rate"] = sum(case["decision"] == "NO_ANSWER" for case in negative_cases) / len(negative_cases)
     if relationship_cases:
         metrics["graph_evidence_coverage"] = sum(case["graphEvidenceMatch"] for case in relationship_cases) / len(relationship_cases)
+        metrics["graph_route_rate"] = sum(case["graphRouted"] for case in relationship_cases) / len(relationship_cases)
+        metrics["graph_candidate_coverage"] = sum(case["graphCandidateMatch"] for case in relationship_cases) / len(relationship_cases)
     if citation_cases:
         metrics["citation_coverage"] = sum(case["citationMatch"] for case in citation_cases) / len(citation_cases)
     difficulty_metrics = {}
@@ -244,6 +249,8 @@ def render_report(cases: List[Dict[str, Any]], metrics: Dict[str, Any], api_url:
         lines.append(f"| Negative no-answer rate | {format_rate(metrics['negative_no_answer_rate'])} |")
     if "graph_evidence_coverage" in metrics:
         lines.append(f"| Graph evidence coverage | {format_rate(metrics['graph_evidence_coverage'])} |")
+        lines.append(f"| Graph route rate (relationship) | {format_rate(metrics['graph_route_rate'])} |")
+        lines.append(f"| Graph candidate coverage (relationship) | {format_rate(metrics['graph_candidate_coverage'])} |")
     if "citation_coverage" in metrics:
         lines.append(f"| Citation coverage | {format_rate(metrics['citation_coverage'])} |")
 

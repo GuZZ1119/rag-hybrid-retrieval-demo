@@ -40,11 +40,18 @@ def main() -> None:
     relationship = next(item for item in items if item["category"] == "relationship")
     relationship_case = evaluator.evaluate_item(
         relationship,
-        {"decision": "ANSWER", "results": [relevant_result], "graphEvidence": [{"entity": "采购申请"}]},
+        {
+            "decision": "ANSWER",
+            "results": [{**relevant_result, "graphRank": 1}],
+            "graphEvidence": [{"entity": "采购申请"}],
+            "graphRouted": True,
+        },
         top_k=10,
     )
     graph_metrics = evaluator.calculate_metrics([relationship_case])
     assert graph_metrics["graph_evidence_coverage"] == 1.0
+    assert graph_metrics["graph_route_rate"] == 1.0
+    assert graph_metrics["graph_candidate_coverage"] == 1.0
 
     ask_case = evaluator.evaluate_item(
         positive,

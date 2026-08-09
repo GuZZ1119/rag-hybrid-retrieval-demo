@@ -336,9 +336,9 @@ docker compose exec kb-api python /app/eval/run_retrieval_eval.py --bootstrap --
 curl "http://localhost:8080/search?q=采购费用为什么要先走审批再申请报销？&mode=HYBRID"
 ```
 
-Hybrid results expose `textRank`, `vectorRank`, `textScore`, `vectorScore`, and `fusionScore`; `candidateK` and `rrfK` are returned at the response root. The default values are configurable through `HYBRID_CANDIDATE_K=20` and `HYBRID_RRF_K=60`.
+Hybrid results expose `textRank`, `vectorRank`, `graphRank`, source scores, and `fusionScore`; `candidateK` and `rrfK` are returned at the response root. The default values are configurable through `HYBRID_CANDIDATE_K=20` and `HYBRID_RRF_K=60`.
 
-混合结果会返回 `textRank`、`vectorRank`、`textScore`、`vectorScore` 与 `fusionScore`，响应根部还会返回 `candidateK` 和 `rrfK`。默认值可通过 `HYBRID_CANDIDATE_K=20` 和 `HYBRID_RRF_K=60` 调整。
+混合结果会返回 `textRank`、`vectorRank`、`graphRank`、各路分数与 `fusionScore`，响应根部还会返回 `candidateK` 和 `rrfK`。默认值可通过 `HYBRID_CANDIDATE_K=20` 和 `HYBRID_RRF_K=60` 调整。
 
 ## Evidence-Gated Retrieval / 证据门控检索
 
@@ -365,9 +365,9 @@ During a HYBRID rebuild, the demo creates a lightweight evidence graph in OpenSe
 
 HYBRID 重建时，Demo 会在 OpenSearch 中创建轻量证据图谱：`Document -> Chunk`（`CONTAINS`）、相邻 chunk（`NEXT_CHUNK`）以及跨 chunk 的源文本共享实体（`MENTIONS`）。实体边只会为至少出现在两个 chunk 中的词组创建，且每条边都保留原始文件和 chunk 元数据。
 
-Queries containing relationship cues such as `关联`, `审批`, `负责`, or `为什么` are graph-routed after retrieval. The API returns `graphRouted` and `graphEvidence`, showing the shared entity, source chunk, target chunk, and source preview. The graph supplements retrieval evidence; it does not invent relations or replace the RRF ranking.
+Queries containing relationship cues such as `关联`, `审批`, `负责`, or `为什么` are graph-routed after retrieval. Queries whose top BM25 and vector candidates do not overlap are also routed as a candidate-disagreement case. The API returns `graphRouted`, `graphRouteReason`, `graphCandidateOverlap`, and `graphEvidence`, showing the shared entity, source chunk, target chunk, and source preview. Graph targets are resolved back to original text chunks and become a third, lower-weight RRF candidate list with `graphRank`; graph score only fills candidates without direct BM25/vector evidence, so it cannot reshuffle a direct match. The graph never invents relations or answers from an edge alone.
 
-包含 `关联`、`审批`、`负责`、`为什么` 等关系信号的查询会在检索后触发图谱路由。API 会返回 `graphRouted` 和 `graphEvidence`，展示共享实体、起始 chunk、目标 chunk 与来源预览。图谱只补充检索证据，不生成无来源关系，也不替代 RRF 排名。
+包含 `关联`、`审批`、`负责`、`为什么` 等关系信号的查询会在检索后触发图谱路由；BM25 与向量 Top 候选没有重叠时也会以候选分歧触发。API 会返回 `graphRouted`、`graphRouteReason`、`graphCandidateOverlap` 与 `graphEvidence`，展示共享实体、起始 chunk、目标 chunk 与来源预览。图谱目标会回查为原始文本 chunk，以较低权重的 `graphRank` 作为第三路候选参与 RRF；已有 BM25 或向量直接证据的 chunk 不会被图谱重复加分，以保护直接命中的排序。图谱边本身不会生成事实或答案。
 
 ```bash
 docker compose exec kb-api python /app/eval/run_retrieval_eval.py \
@@ -376,7 +376,7 @@ docker compose exec kb-api python /app/eval/run_retrieval_eval.py \
   --output /app/eval/reports/graph_baseline.md
 ```
 
-The graph baseline adds `Graph evidence coverage` for golden relationship queries, counted only when a returned path contains the expected shared entity.
+The graph baseline adds `Graph evidence coverage`, relationship-query route rate, and graph-candidate coverage. `GRAPH_RRF_WEIGHT=0.1` is intentionally lower than direct retrieval weights and must be re-evaluated with every corpus or graph change. These metrics make graph routing measurable without claiming that it replaces the BM25/vector baseline.
 
 ## Citation-First Ask / 带引用问答
 
@@ -404,7 +404,7 @@ The response contains `answer`, `answerMode`, `answerReason`, and structured `ci
 
 ## Quality Feedback Loop / 质量与反馈闭环
 
-Each `/ask` response includes a `requestId`. The API stores a privacy-minimized event in the Docker data volume: a query fingerprint and length, decision, answer mode, retrieval count, citation count, and graph-routing state. It does not store the raw question or answer text.
+Each `/ask` response includes a `requestId`. The API stores a privacy-minimized event in the Docker data volume: a query fingerprint and length, decision, answer mode, retrieval count, citation count, route reason, latency, and a five-candidate rank snapshot. It does not store the raw question or answer text.
 
 每个 `/ask` 响应都包含 `requestId`。API 会在 Docker 数据卷中写入最小化隐私事件：查询指纹和长度、决策、答案模式、召回数量、引用数量与图谱路由状态；不会记录原始问题或答案文本。
 
@@ -414,9 +414,11 @@ curl -X POST http://localhost:8080/feedback \
   -d '{"requestId":"<request-id>","rating":"UP"}'
 
 curl http://localhost:8080/feedback/summary
+
+curl http://localhost:8080/feedback/review-queue
 ```
 
-Feedback is intentionally binary (`UP` or `DOWN`) for this personal demo. The next calibration step should use its aggregate outcomes, not mutate retrieval settings automatically.
+Feedback is intentionally binary (`UP` or `DOWN`) for this personal demo. The review queue combines `NO_ANSWER` events and `DOWN` ratings into privacy-minimized candidates for manual golden-set review. Calibration should use these reviewed cases and the fixed evaluation report, not mutate retrieval settings automatically.
 
 The evaluation bootstrap now indexes every fixture document, including distractor documents. Golden cases can be marked `standard` or `challenge`; reports include Recall@3 and MRR@10 for both groups.
 

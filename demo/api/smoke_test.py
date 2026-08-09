@@ -142,6 +142,23 @@ def test_graph_helpers(kb):
     ]
     assert kb.filter_graph_seed_edges_by_query("报销为什么需要关联采购申请？", seed_edges) == [seed_edges[1]]
 
+    def hit(chunk_id):
+        return {"_id": chunk_id, "_source": {"chunkId": chunk_id}}
+
+    relation_route = kb.graph_route_decision(
+        "报销为什么需要关联采购申请？", [hit("text-1")], [hit("vector-1")], {"status": "ANSWER"}
+    )
+    assert relation_route["routed"] is True
+    assert relation_route["reason"] == "relationship_query_cue"
+    disagreement_route = kb.graph_route_decision(
+        "采购申请", [hit("text-1")], [hit("vector-1")], {"status": "ANSWER"}
+    )
+    assert disagreement_route["reason"] == "candidate_disagreement"
+    agreement_route = kb.graph_route_decision(
+        "采购申请", [hit("shared")], [hit("shared")], {"status": "ANSWER"}
+    )
+    assert agreement_route["reason"] == "candidate_agreement"
+
 
 def test_hybrid_fusion(kb):
     def hit(chunk_id, score):
@@ -160,6 +177,12 @@ def test_hybrid_fusion(kb):
     assert fused[0]["textRank"] == 2
     assert fused[0]["vectorRank"] == 1
     assert fused[0]["fusionScore"] > fused[1]["fusionScore"]
+    graph_fused = kb.fuse_ranked_hits([], [], top_k=1, graph_hits=[hit("graph-only", 1.0)])
+    assert graph_fused[0]["graphRank"] == 1
+    protected_direct = kb.fuse_ranked_hits(
+        [hit("direct", 10.0)], [], top_k=1, graph_hits=[hit("direct", 1.0)]
+    )
+    assert protected_direct[0]["fusionScore"] == 1.0 / (kb.HYBRID_RRF_K + 1)
 
 
 def test_answer_decision(kb):
@@ -214,6 +237,10 @@ def test_feedback_helpers(kb):
         "retrievedCount": 2,
         "citations": [{"citationId": 1}],
         "graphRouted": True,
+        "graphRouteReason": "relationship_query_cue",
+        "graphCandidateOverlap": 0,
+        "retrievalLatencyMs": 12.5,
+        "results": [{"chunkId": "file-1:0", "rank": 1, "textRank": 1, "vectorRank": 1, "graphRank": None}],
     }
     kb.record_ask_event(request_id, "采购审批怎么做？", response)
     events = kb.load_ask_events()
@@ -226,6 +253,11 @@ def test_feedback_helpers(kb):
     assert summary["askCount"] == 1
     assert summary["positiveFeedbackCount"] == 1
     assert summary["positiveFeedbackRate"] == 1.0
+
+    kb.append_ask_event({"eventType": "feedback", "requestId": request_id, "rating": "DOWN"})
+    review_queue = kb.feedback_review_queue()
+    assert review_queue["reviewCount"] == 1
+    assert review_queue["items"][0]["reasons"] == ["negative_feedback"]
 
 
 async def test_upload_and_config(kb):

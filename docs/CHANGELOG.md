@@ -2,6 +2,14 @@
 
 This file records project delivery commits with the date and the completed work. Add a new entry whenever a project change is pushed.
 
+## 2026-08-09 23:20 AEST
+
+- Routed the OpenSearch evidence graph for relationship queries and BM25/vector candidate disagreement, with an explicit route reason and overlap count.
+- Resolved graph targets back to original text chunks and included them as a lower-weight third RRF candidate source with `graphRank` provenance, without re-scoring chunks that already have direct evidence.
+- Extended privacy-minimized ask telemetry with latency, route metadata, and rank snapshots; added the `GET /feedback/review-queue` endpoint for `NO_ANSWER` and negative-feedback review cases.
+- Extended graph evaluation with route-rate and graph-candidate-coverage metrics, and updated smoke coverage and documentation.
+- Completed the Docker HYBRID ask baseline on 20 cases with `Recall@3=100%`, `Recall@5=100%`, `MRR@10=1.000`, `Graph route rate=100%` for relationship queries, and `Citation coverage=100%`.
+
 ## 2026-08-09 23:11 AEST
 
 - Added privacy-minimized `/ask` event logging, binary feedback submission, and feedback summary aggregation keyed by request ID.

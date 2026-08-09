@@ -3,6 +3,7 @@ import re
 import uuid
 import json
 import hashlib
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Protocol, Set
@@ -79,6 +80,7 @@ EMBEDDING_DIMENSION = read_positive_int_env("EMBEDDING_DIMENSION", 384)
 EMBEDDING_DEVICE = os.getenv("EMBEDDING_DEVICE", "cpu")
 HYBRID_CANDIDATE_K = read_positive_int_env("HYBRID_CANDIDATE_K", 20)
 HYBRID_RRF_K = read_non_negative_int_env("HYBRID_RRF_K", 60)
+GRAPH_RRF_WEIGHT = read_non_negative_float_env("GRAPH_RRF_WEIGHT", 0.1)
 NO_ANSWER_MIN_TEXT_SCORE = read_non_negative_float_env("NO_ANSWER_MIN_TEXT_SCORE", 4.0)
 GRAPH_SEED_LIMIT = read_positive_int_env("GRAPH_SEED_LIMIT", 3)
 GRAPH_MAX_PATHS = read_positive_int_env("GRAPH_MAX_PATHS", 8)
@@ -200,6 +202,18 @@ def utc_timestamp() -> str:
 
 
 def record_ask_event(request_id: str, question: str, response: Dict[str, Any]) -> None:
+    candidate_ranks = []
+    for result in response.get("results", [])[:5]:
+        chunk_id = result.get("chunkId")
+        if not chunk_id:
+            continue
+        candidate_ranks.append({
+            "chunkId": chunk_id,
+            "rank": result.get("rank"),
+            "textRank": result.get("textRank"),
+            "vectorRank": result.get("vectorRank"),
+            "graphRank": result.get("graphRank"),
+        })
     append_ask_event({
         "eventType": "ask",
         "timestamp": utc_timestamp(),
@@ -211,6 +225,11 @@ def record_ask_event(request_id: str, question: str, response: Dict[str, Any]) -
         "retrievedCount": response.get("retrievedCount", 0),
         "citationCount": len(response.get("citations", [])),
         "graphRouted": bool(response.get("graphRouted")),
+        "graphRouteReason": response.get("graphRouteReason"),
+        "graphCandidateOverlap": response.get("graphCandidateOverlap"),
+        "retrievalLatencyMs": response.get("retrievalLatencyMs"),
+        "candidateRanks": candidate_ranks,
+        "citationChunkIds": [citation.get("chunkId") for citation in response.get("citations", []) if citation.get("chunkId")],
     })
 
 
@@ -237,6 +256,43 @@ def feedback_summary() -> Dict[str, Any]:
         "negativeFeedbackCount": negative_feedback,
         "positiveFeedbackRate": positive_feedback / len(feedback_events) if feedback_events else None,
     }
+
+
+def feedback_review_queue(limit: int = 20) -> Dict[str, Any]:
+    """Return privacy-minimized cases that need a human evaluation-set review."""
+    events = load_ask_events()
+    feedback_by_request: Dict[str, List[Dict[str, Any]]] = {}
+    for event in events:
+        if event.get("eventType") == "feedback":
+            feedback_by_request.setdefault(str(event.get("requestId", "")), []).append(event)
+
+    items = []
+    for event in events:
+        if event.get("eventType") != "ask":
+            continue
+        feedback = feedback_by_request.get(str(event.get("requestId", "")), [])
+        reasons = []
+        if event.get("decision") == "NO_ANSWER":
+            reasons.append("no_answer")
+        if any(item.get("rating") == "DOWN" for item in feedback):
+            reasons.append("negative_feedback")
+        if not reasons:
+            continue
+        items.append({
+            "requestId": event.get("requestId"),
+            "timestamp": event.get("timestamp"),
+            "queryFingerprint": event.get("queryFingerprint"),
+            "queryLength": event.get("queryLength"),
+            "reasons": reasons,
+            "decision": event.get("decision"),
+            "graphRouted": event.get("graphRouted"),
+            "graphRouteReason": event.get("graphRouteReason"),
+            "retrievalLatencyMs": event.get("retrievalLatencyMs"),
+            "candidateRanks": event.get("candidateRanks", []),
+            "ratings": [item.get("rating") for item in feedback],
+        })
+    items.sort(key=lambda item: str(item.get("timestamp") or ""), reverse=True)
+    return {"reviewCount": len(items), "items": items[:limit]}
 
 def connect_os() -> OpenSearch:
     # OpenSearch security plugin disabled in compose, so no auth.
@@ -518,6 +574,29 @@ def is_relationship_query(query: str) -> bool:
     return any(cue in query for cue in RELATION_QUERY_CUES)
 
 
+def candidate_overlap_count(text_hits: List[Dict[str, Any]], vector_hits: List[Dict[str, Any]]) -> int:
+    text_ids = {hit_chunk_id(hit) for hit in text_hits[:GRAPH_SEED_LIMIT] if hit_chunk_id(hit)}
+    vector_ids = {hit_chunk_id(hit) for hit in vector_hits[:GRAPH_SEED_LIMIT] if hit_chunk_id(hit)}
+    return len(text_ids & vector_ids)
+
+
+def graph_route_decision(
+    query: str,
+    text_hits: List[Dict[str, Any]],
+    vector_hits: List[Dict[str, Any]],
+    answer_decision: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Route only when a relation cue or independent candidates justify graph cost."""
+    overlap = candidate_overlap_count(text_hits, vector_hits)
+    if answer_decision.get("status") != "ANSWER":
+        return {"routed": False, "reason": "no_answer", "candidateOverlap": overlap}
+    if is_relationship_query(query):
+        return {"routed": True, "reason": "relationship_query_cue", "candidateOverlap": overlap}
+    if not overlap:
+        return {"routed": True, "reason": "candidate_disagreement", "candidateOverlap": overlap}
+    return {"routed": False, "reason": "candidate_agreement", "candidateOverlap": overlap}
+
+
 def filter_graph_seed_edges_by_query(query: str, edges: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     query_entities = extract_graph_entity_candidates(query)
     matching_edges = [
@@ -568,11 +647,12 @@ def fuse_ranked_hits(
     text_hits: List[Dict[str, Any]],
     vector_hits: List[Dict[str, Any]],
     top_k: int,
+    graph_hits: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """Fuse text and vector candidates with reciprocal rank fusion (RRF)."""
     candidates: Dict[str, Dict[str, Any]] = {}
 
-    def add_hits(hits: List[Dict[str, Any]], rank_key: str, score_key: str) -> None:
+    def add_hits(hits: List[Dict[str, Any]], rank_key: str, score_key: str, weight: float = 1.0) -> None:
         for rank, hit in enumerate(hits, start=1):
             chunk_id = hit_chunk_id(hit)
             if not chunk_id:
@@ -583,22 +663,33 @@ def fuse_ranked_hits(
                     "hit": hit,
                     "textRank": None,
                     "vectorRank": None,
+                    "graphRank": None,
                     "textScore": None,
                     "vectorScore": None,
+                    "graphScore": None,
                     "fusionScore": 0.0,
                 },
             )
             candidate[rank_key] = rank
             candidate[score_key] = hit.get("_score")
-            candidate["fusionScore"] += 1.0 / (HYBRID_RRF_K + rank)
+            # Graph evidence may fill a retrieval gap, but must not reorder a chunk
+            # that already has direct BM25 or vector evidence.
+            if rank_key == "graphRank" and (candidate["textRank"] is not None or candidate["vectorRank"] is not None):
+                continue
+            candidate["fusionScore"] += weight / (HYBRID_RRF_K + rank)
 
     add_hits(text_hits, "textRank", "textScore")
     add_hits(vector_hits, "vectorRank", "vectorScore")
+    add_hits(graph_hits or [], "graphRank", "graphScore", GRAPH_RRF_WEIGHT)
     return sorted(
         candidates.values(),
         key=lambda candidate: (
             -candidate["fusionScore"],
-            min(rank for rank in [candidate["textRank"], candidate["vectorRank"]] if rank is not None),
+            min(
+                rank
+                for rank in [candidate["textRank"], candidate["vectorRank"], candidate["graphRank"]]
+                if rank is not None
+            ),
             hit_chunk_id(candidate["hit"]),
         ),
     )[:top_k]
@@ -609,9 +700,11 @@ def format_search_result(
     rank: int,
     text_rank: Optional[int] = None,
     vector_rank: Optional[int] = None,
+    graph_rank: Optional[int] = None,
     fusion_score: Optional[float] = None,
     text_score: Optional[float] = None,
     vector_score: Optional[float] = None,
+    graph_score: Optional[float] = None,
 ) -> Dict[str, Any]:
     source = hit.get("_source", {})
     highlight = hit.get("highlight", {}).get("content", [])
@@ -625,9 +718,11 @@ def format_search_result(
         "score": fusion_score if fusion_score is not None else hit.get("_score"),
         "textRank": text_rank,
         "vectorRank": vector_rank,
+        "graphRank": graph_rank,
         "fusionScore": fusion_score,
         "textScore": text_score,
         "vectorScore": vector_score,
+        "graphScore": graph_score,
         "highlight": highlight[0] if highlight else None,
         "content": content,
         "contentPreview": content_preview(content),
@@ -1080,6 +1175,28 @@ def graph_expand(client: OpenSearch, query: str, seed_results: List[Dict[str, An
     return paths
 
 
+def graph_candidate_hits(client: OpenSearch, paths: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Resolve graph path targets back to canonical text chunks before fusion."""
+    target_ids = []
+    for path in paths:
+        chunk_id = path.get("toChunkId")
+        if chunk_id and chunk_id not in target_ids:
+            target_ids.append(chunk_id)
+    if not target_ids:
+        return []
+    response = client.mget(index=INDEX_NAME, body={"ids": target_ids})
+    by_id = {
+        str(document.get("_id")): document
+        for document in response.get("docs", [])
+        if document.get("found")
+    }
+    return [
+        {"_id": chunk_id, "_source": by_id[chunk_id].get("_source", {}), "_score": 1.0}
+        for chunk_id in target_ids
+        if chunk_id in by_id
+    ]
+
+
 @app.post("/index/rebuild")
 def index_rebuild(fileId: Optional[str] = None):
     """
@@ -1110,6 +1227,7 @@ def search(
     topK: int = Query(10, ge=1, le=50),
     mode: str = Query("TEXT"),
 ):
+    started_at = time.perf_counter()
     client = connect_os()
     mode = mode.upper()
     if mode not in ["TEXT", "VECTOR", "HYBRID"]:
@@ -1150,23 +1268,48 @@ def search(
             body=vector_search_body(query_vector, candidate_k),
         ).get("hits", {}).get("hits", [])
         fused_candidates = fuse_ranked_hits(text_hits, vector_hits, topK)
+        provisional_results = [
+            format_search_result(
+                candidate["hit"],
+                rank,
+                text_rank=candidate["textRank"],
+                vector_rank=candidate["vectorRank"],
+                graph_rank=candidate["graphRank"],
+                fusion_score=candidate["fusionScore"],
+                text_score=candidate["textScore"],
+                vector_score=candidate["vectorScore"],
+                graph_score=candidate["graphScore"],
+            )
+            for rank, candidate in enumerate(fused_candidates, start=1)
+        ]
+        response.update({"candidateK": candidate_k, "rrfK": HYBRID_RRF_K, "graphRrfWeight": GRAPH_RRF_WEIGHT})
+
+    if mode == "HYBRID":
+        decision = decide_answer(mode, provisional_results)
+        graph_route = graph_route_decision(q, text_hits, vector_hits, decision)
+        graph_evidence = graph_expand(client, q, provisional_results) if graph_route["routed"] else []
+        graph_hits = graph_candidate_hits(client, graph_evidence) if graph_evidence else []
+        if graph_hits:
+            fused_candidates = fuse_ranked_hits(text_hits, vector_hits, topK, graph_hits=graph_hits)
         results = [
             format_search_result(
                 candidate["hit"],
                 rank,
                 text_rank=candidate["textRank"],
                 vector_rank=candidate["vectorRank"],
+                graph_rank=candidate["graphRank"],
                 fusion_score=candidate["fusionScore"],
                 text_score=candidate["textScore"],
                 vector_score=candidate["vectorScore"],
+                graph_score=candidate["graphScore"],
             )
             for rank, candidate in enumerate(fused_candidates, start=1)
         ]
-        response.update({"candidateK": candidate_k, "rrfK": HYBRID_RRF_K})
-
-    decision = decide_answer(mode, results)
-    graph_routed = mode == "HYBRID" and decision["status"] == "ANSWER" and is_relationship_query(q)
-    graph_evidence = graph_expand(client, q, results) if graph_routed else []
+        decision = decide_answer(mode, results)
+    else:
+        decision = decide_answer(mode, results)
+        graph_route = {"routed": False, "reason": "not_hybrid_mode", "candidateOverlap": None}
+        graph_evidence = []
     response.update({
         "decision": decision["status"],
         "decisionReason": decision["reason"],
@@ -1174,8 +1317,11 @@ def search(
         "retrievedCount": len(results),
         "count": len(results) if decision["status"] == "ANSWER" else 0,
         "results": results if decision["status"] == "ANSWER" else [],
-        "graphRouted": graph_routed,
+        "graphRouted": graph_route["routed"],
+        "graphRouteReason": graph_route["reason"],
+        "graphCandidateOverlap": graph_route["candidateOverlap"],
         "graphEvidence": graph_evidence,
+        "retrievalLatencyMs": round((time.perf_counter() - started_at) * 1000, 2),
     })
     return response
 
@@ -1218,3 +1364,8 @@ def submit_feedback(body: Dict[str, Any]):
 @app.get("/feedback/summary")
 def get_feedback_summary():
     return feedback_summary()
+
+
+@app.get("/feedback/review-queue")
+def get_feedback_review_queue(limit: int = Query(20, ge=1, le=100)):
+    return feedback_review_queue(limit)
