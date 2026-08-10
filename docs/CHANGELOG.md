@@ -4,6 +4,12 @@ This file records project delivery commits with the date and the completed work.
 
 ## 2026-08-10
 
+- Added an isolated `kb-eval-api` service with dedicated data volume and `kb_eval_*` OpenSearch indexes; evaluation rejects any uploaded document outside the frozen corpus manifest.
+- Added a SHA-locked corpus manifest, deterministic fixture file IDs, immutable chunk-level qrels, and a fixed 20-case dev / 44-case test split. The evaluator now defaults to held-out test and records all manifest checksums in JSON results and quality-gate comparability checks.
+- Re-ran the accepted held-out test matrix: HYBRID and HYBRID+Graph both reached `Recall@5=96.8%`, `nDCG@5=0.791`, and `MRR@10=0.737`; Graph evidence coverage is `50.0%` on eight relationship questions. The test `/ask` run records chunk-level citation coverage `90.3%` and extractive citation faithfulness `100.0%` on 31 evaluable positive answers.
+
+## 2026-08-10
+
 - Recalibrated the challenge corpus with 400-character chunks and five vocabulary-overlapping historical archive documents, replacing the misleading near-single-chunk `Recall@3/5=100%` result with a denser, version-conflict retrieval pool.
 - Added `Recall@1`, `Precision@3/5`, `nDCG@3/5`, and extractive citation-faithfulness evaluation, with offline smoke coverage and quality-gate tolerances for ranking and extractive faithfulness metrics.
 - Recorded the dense-corpus matrix: HYBRID `Recall@5=97.8%`, `nDCG@5=0.801`, `MRR@10=0.745`; HYBRID+Graph preserves Recall@5 while providing `40.0%` relationship graph-evidence coverage at a visible small ranking cost.

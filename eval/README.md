@@ -2,9 +2,18 @@
 
 `golden_qa.jsonl` is a fixed, synthetic and anonymized evaluation set for the enterprise-file RAG demo. It is deliberately small enough to inspect by hand and difficult enough to reveal retrieval regressions.
 
+## Frozen Evaluation Protocol
+
+The benchmark is deliberately separated from the interactive demo environment.
+
+- `split_manifest.json` freezes 20 development cases and 44 held-out test cases. Tune chunking, retrieval weights, graph routing, and no-answer thresholds only on `dev`; release reports and quality gates default to `test`.
+- `corpus_manifest.json` freezes every fixture filename, SHA-256, deterministic file ID, and the 400/120 chunking contract.
+- `qrels.jsonl` maps every positive query to immutable `fileId:chunkIndex` relevance labels. Changing the corpus or chunking requires a new manifest and new qrels, rather than silently changing the definition of a hit.
+- Docker service `kb-eval-api` uses its own `kb-eval-*` OpenSearch indexes and `kb-eval-data` volume. The evaluator rejects any uploaded file outside the frozen manifest.
+
 ## Dataset Design
 
-The current set has 64 labelled cases. The evaluation corpus has 16 files: 11 controlled policy documents and 5 explicitly marked historical archives with overlapping vocabulary. With the Docker default chunk size of 400 and overlap of 120, this produces a multi-chunk retrieval pool instead of treating each source file as one candidate.
+The full set has 64 labelled cases: 20 development and 44 test. The evaluation corpus has 16 files: 11 controlled policy documents and 5 explicitly marked historical archives with overlapping vocabulary. With the frozen 400-character chunk size and 120-character overlap, this produces a multi-chunk retrieval pool instead of treating each source file as one candidate.
 
 - 22 keyword queries
 - 14 paraphrased queries
@@ -27,38 +36,38 @@ Positive cases identify one expected evidence chunk through a file and source te
 
 The Docker HYBRID `/ask` baseline is recorded in `reports/quality_baseline.md`.
 
-After introducing the archival distractor corpus and smaller chunks, the current `HYBRID+Graph` search run reaches `Recall@1=56.5%`, `Recall@3=89.1%`, `Recall@5=97.8%`, `Precision@3=29.7%`, `nDCG@5=0.797`, and `MRR@10=0.739`. Graph evidence coverage on relationship cases is `40.0%`.
-
-The `/ask` baseline records `Citation coverage=91.3%` and `Extractive citation faithfulness=100.0%` across 46 evaluable positive answers. Its negative no-answer rate is currently `0.0%`; the denser corpus has exposed no-answer calibration as the next retrieval-quality target. These diagnostic metrics should not be improved by removing hard negatives or weakening the relationship labels.
+The earlier 64-case report predates frozen qrels and is retained only as historical context. Regenerate the accepted baseline on the isolated 44-case test split before comparing a new implementation. These diagnostic metrics should not be improved by changing test labels, the corpus snapshot, or qrels.
 
 ## Compare And Gate
 
 Run the same data through `TEXT`, `VECTOR`, `HYBRID`, and `HYBRID+Graph`:
 
 ```bash
-docker compose exec kb-api python /app/eval/run_experiment_matrix.py --bootstrap
+docker compose up -d --build
+EVAL_REVISION="$(git rev-parse HEAD)" docker compose exec -e EVAL_REVISION \
+  kb-eval-api python /app/eval/run_experiment_matrix.py --bootstrap --split test
 ```
 
 The matrix writes per-path Markdown and JSON payloads plus `reports/challenge_matrix.md`. JSON payloads contain the dataset checksum, retrieval configuration, and metrics, so a candidate run can be checked against an accepted baseline:
 
 ```bash
-docker compose exec kb-api python /app/eval/quality_gate.py \
+docker compose exec kb-eval-api python /app/eval/quality_gate.py \
   --baseline /app/eval/reports/challenge_hybrid_graph.json \
   --candidate /app/eval/reports/candidate_hybrid_graph.json
 ```
 
 The default gate allows small documented movement (`Recall@5`, `Precision@3`, `nDCG@5`, no-answer rate, citation coverage, and extractive citation faithfulness: 5 points; `MRR@10`: 0.03) but rejects larger regressions or a changed dataset checksum. Metrics not applicable to an endpoint are skipped, so run the gate on like-for-like `/search` or `/ask` payloads.
 
-The accepted 64-case retrieval matrix is stored in `reports/challenge_matrix.md`. Its current result is: TEXT `MRR@10=0.616`, VECTOR `0.718`, HYBRID `0.745`, and HYBRID+Graph `0.739`. Graph expansion keeps Recall@5 at `97.8%`, raises relationship evidence coverage from `0.0%` to `40.0%`, and has a small ranking cost that remains visible in the report.
+The accepted test matrix is stored in `reports/challenge_matrix.md`. Its JSON payload must contain matching dataset, qrels, split-manifest, corpus-manifest, runtime configuration, and source-revision provenance before it is compared by the quality gate.
 
 ## Run
 
-From the `demo` directory:
+From the `demo` directory, use `dev` while selecting configuration changes:
 
 ```bash
-docker compose exec kb-api python /app/eval/run_retrieval_eval.py \
+docker compose exec kb-eval-api python /app/eval/run_retrieval_eval.py \
   --bootstrap \
   --mode HYBRID \
-  --endpoint ask \
-  --output /app/eval/reports/quality_baseline.md
+  --split dev \
+  --output /app/eval/reports/dev_hybrid.md
 ```

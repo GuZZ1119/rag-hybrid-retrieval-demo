@@ -12,6 +12,10 @@ import quality_gate
 def payload(metrics, dataset_sha="same-dataset", graph_enabled=True):
     return {
         "datasetSha256": dataset_sha,
+        "qrelsSha256": "same-qrels",
+        "splitManifestSha256": "same-split",
+        "corpusManifestSha256": "same-corpus",
+        "split": "test",
         "mode": "HYBRID",
         "endpoint": "search",
         "topK": 10,

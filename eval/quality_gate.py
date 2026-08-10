@@ -34,7 +34,17 @@ def compare_metrics(
     errors = []
     baseline_metrics = baseline["metrics"]
     candidate_metrics = candidate["metrics"]
-    for field in ("datasetSha256", "mode", "endpoint", "topK", "graphEnabled"):
+    for field in (
+        "datasetSha256",
+        "qrelsSha256",
+        "splitManifestSha256",
+        "corpusManifestSha256",
+        "split",
+        "mode",
+        "endpoint",
+        "topK",
+        "graphEnabled",
+    ):
         if baseline.get(field) != candidate.get(field):
             errors.append(f"{field} differs; experiments are not comparable")
 

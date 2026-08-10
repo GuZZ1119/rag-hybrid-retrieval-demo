@@ -278,6 +278,11 @@ async def test_upload_and_config(kb):
     assert files["count"] == 1
     assert files["files"] == [{"fileId": uploaded["fileId"], "filename": "kb.txt"}]
 
+    fixed = await kb.upload(FakeUploadFile("fixture.txt", b"fixture"), fileId="eval-fixture")
+    assert fixed["fileId"] == "eval-fixture"
+    await assert_raises_http_async(409, kb.upload, FakeUploadFile("again.txt", b"again"), "eval-fixture")
+    await assert_raises_http_async(400, kb.upload, FakeUploadFile("bad.txt", b"bad"), "not/a-valid-id")
+
     await assert_raises_http_async(400, kb.upload, FakeUploadFile("bad.exe", b"content"))
     await assert_raises_http_async(413, kb.upload, FakeUploadFile("large.txt", b"x" * 65))
     assert_raises_http(400, kb.ask, {"q": "test", "graphEnabled": "enabled"})

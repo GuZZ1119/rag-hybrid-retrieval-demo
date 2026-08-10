@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "chunking": {
+    "chunkSize": 400,
+    "chunkOverlap": 120
+  },
+  "fixtures": [
+    {"filename": "access_exception_policy.txt", "fileId": "eval-d66d440f184d06cd", "sha256": "892b72c6e0210fc01ef9dee3e5190adca443d1809abe9bfc2f4eac7b3135d36f"},
+    {"filename": "change_management_policy.txt", "fileId": "eval-cf557a6693fa26a1", "sha256": "5c07dabf66db6e2d60c719782c7e5141610e9b2c9e0ad9f7afd06c70d52c25ac"},
+    {"filename": "data_retention_policy.txt", "fileId": "eval-5bf655b66b677cd5", "sha256": "b5a9f1ca96c29002aaf00ab22d34a4b4345430f1058d1d2279949810039e56d0"},
+    {"filename": "finance_operations_archive.txt", "fileId": "eval-6e8da69fb044d18f", "sha256": "0f75cce11b8059e1a3821caf251e792b03dec86a55807ac7f6dd0a58e1c5768a"},
+    {"filename": "incident_change_archive.txt", "fileId": "eval-c233c5f46e23a5f8", "sha256": "4d6c123e76a0c9d6fbbaf09cc28a7d70ae5077589538abe072e4aa0074479e80"},
+    {"filename": "incident_response_guide.txt", "fileId": "eval-e7d01ea9c08d785b", "sha256": "e15d2d029073b9605c6e88c9f090a859554f0b28e858fd92471947581b199596"},
+    {"filename": "procurement_archive_2024.txt", "fileId": "eval-efb41f0a631a3b32", "sha256": "60ad34e7398a532c5707bc6ba91c41c9dc1265d067101a747d90f3478a37ca61"},
+    {"filename": "procurement_policy.txt", "fileId": "eval-68f9293bc5ec81c5", "sha256": "800569fca322090029f184ae83b1eed1f9200f9cb29301ce4fa3dd47d27b2550"},
+    {"filename": "procurement_policy_2026.txt", "fileId": "eval-9ed96d018587d5ff", "sha256": "c41e7eee21a9c2886cfedf2a3840f613f833cdce5c4e68e4042eab5d13b457ac"},
+    {"filename": "reimbursement_policy.txt", "fileId": "eval-8187634d61a7f457", "sha256": "8ee531aca4937a9272510d4fef521b7b00c5876697178a3d74a0a39ea778312c"},
+    {"filename": "remote_work_policy.txt", "fileId": "eval-7483368e35ae8ddb", "sha256": "04b00454ceb84dd0a6947ea480029960eed062096d0c2efaae64bcfe5683fd39"},
+    {"filename": "security_access_archive.txt", "fileId": "eval-f0ed73d2b68469d4", "sha256": "1737ec6dc13af26c55fc8981e2d5d5c8b18e88b7df53b951fbc34c9e3f740999"},
+    {"filename": "security_awareness_guide.txt", "fileId": "eval-01523dcd2be6c2a4", "sha256": "d195b2d6780be748f85c1d07c0c973804c58e5435eae4ef50c1d5252da56dbf5"},
+    {"filename": "travel_expense_addendum.txt", "fileId": "eval-6e9c04a866e38fad", "sha256": "e9d5bcf31a697e133634f3990aa83e9242a8a0fdfd51756006f1c06bd27e819e"},
+    {"filename": "vendor_onboarding_guide.txt", "fileId": "eval-8d806959f6e688f9", "sha256": "69f80a62797e116a65f585fbfee2b7022e20fa4d767e9f5eab6d5268310879cb"},
+    {"filename": "vendor_service_archive.txt", "fileId": "eval-c9ec5d316bb3cef9", "sha256": "a6c8e8e1ed0c5f77c85819db87dc7e6f8c1e8ef4034128e54e07a332fc4266cf"}
+  ]
+}

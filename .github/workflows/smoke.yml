@@ -44,8 +44,9 @@ jobs:
 
       - name: Validate evaluation dataset and metric logic
         run: |
-          python -m py_compile eval/run_retrieval_eval.py eval/eval_smoke_test.py eval/quality_gate.py eval/quality_gate_smoke_test.py eval/run_experiment_matrix.py eval/experiment_matrix_smoke_test.py
+          python -m py_compile eval/run_retrieval_eval.py eval/eval_smoke_test.py eval/isolation_smoke_test.py eval/quality_gate.py eval/quality_gate_smoke_test.py eval/run_experiment_matrix.py eval/experiment_matrix_smoke_test.py
           python eval/run_retrieval_eval.py --validate-only
           python eval/eval_smoke_test.py
+          python eval/isolation_smoke_test.py
           python eval/quality_gate_smoke_test.py
           python eval/experiment_matrix_smoke_test.py

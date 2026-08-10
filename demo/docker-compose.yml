@@ -68,7 +68,43 @@
       opensearch:
         condition: service_healthy
 
+  kb-eval-api:
+    build:
+      context: ..
+      dockerfile: demo/api/Dockerfile
+    container_name: kb-eval-api
+    environment:
+      - OPENSEARCH_URL=http://opensearch:9200
+      - OPENSEARCH_INDEX=kb_eval_chunks
+      - OPENSEARCH_VECTOR_INDEX=kb_eval_chunks_vector_v1
+      - OPENSEARCH_GRAPH_INDEX=kb_eval_evidence_graph_v1
+      - CHUNK_SIZE=400
+      - CHUNK_OVERLAP=120
+      - EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+      - EMBEDDING_DIMENSION=384
+      - EMBEDDING_DEVICE=cpu
+      - HYBRID_CANDIDATE_K=20
+      - HYBRID_RRF_K=60
+      - GRAPH_RRF_WEIGHT=0.1
+      - NO_ANSWER_MIN_TEXT_SCORE=4.0
+      - GRAPH_SEED_LIMIT=3
+      - GRAPH_MAX_PATHS=8
+      - ASK_MAX_CITATIONS=3
+      - ASK_CONTEXT_CHAR_LIMIT=2400
+      - LLM_TIMEOUT_SECONDS=30
+      - DATA_DIR=/data
+    volumes:
+      - kb-eval-data:/data
+      - hf-model-cache:/root/.cache/huggingface
+      - ../eval:/app/eval
+    ports:
+      - "8081:8080"
+    depends_on:
+      opensearch:
+        condition: service_healthy
+
 volumes:
   opensearch-data:
   kb-data:
+  kb-eval-data:
   hf-model-cache:

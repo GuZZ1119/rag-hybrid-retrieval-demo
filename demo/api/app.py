@@ -10,7 +10,7 @@ from typing import List, Dict, Any, Optional, Protocol, Set
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from opensearchpy import OpenSearch
 from pypdf import PdfReader
 from docx import Document
@@ -885,20 +885,23 @@ def runtime_config():
 
 
 @app.post("/upload")
-async def upload(file: UploadFile = File(...)):
+async def upload(file: UploadFile = File(...), fileId: Optional[str] = Form(None)):
     ensure_dirs()
 
     if not file.filename:
         raise HTTPException(status_code=400, detail="filename is required")
 
-    file_id = str(uuid.uuid4())
+    # Direct unit calls retain FastAPI's Form default object; HTTP requests inject None or a string.
+    if fileId is not None and not isinstance(fileId, str):
+        fileId = None
+    if fileId is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", fileId):
+        raise HTTPException(status_code=400, detail="fileId must use letters, digits, hyphens, or underscores")
+    file_id = fileId or str(uuid.uuid4())
     safe_name = Path(file.filename).name
     suffix = Path(safe_name).suffix.lower()
     if suffix not in SUPPORTED_SUFFIXES:
         allowed = ", ".join(sorted(SUPPORTED_SUFFIXES))
         raise HTTPException(status_code=400, detail=f"unsupported file type: {suffix}; allowed: {allowed}")
-
-    dst = UPLOAD_DIR / f"{file_id}__{safe_name}"
 
     content = await file.read()
     if not content:
@@ -906,9 +909,12 @@ async def upload(file: UploadFile = File(...)):
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail=f"file too large; max bytes: {MAX_UPLOAD_BYTES}")
 
-    dst.write_bytes(content)
-
     meta = load_meta()
+    if any(existing.get("fileId") == file_id for existing in meta["files"]):
+        raise HTTPException(status_code=409, detail="fileId already exists")
+
+    dst = UPLOAD_DIR / f"{file_id}__{safe_name}"
+    dst.write_bytes(content)
     meta["files"].append({"fileId": file_id, "filename": safe_name, "path": str(dst)})
     save_meta(meta)
 

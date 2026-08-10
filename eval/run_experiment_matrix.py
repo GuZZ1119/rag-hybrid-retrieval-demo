@@ -60,6 +60,10 @@ def main() -> int:
     parser.add_argument("--api-url", default="http://localhost:8080")
     parser.add_argument("--dataset", type=Path, default=EVAL_DIR / "golden_qa.jsonl")
     parser.add_argument("--fixture-dir", type=Path, default=EVAL_DIR / "fixtures")
+    parser.add_argument("--qrels", type=Path, default=EVAL_DIR / "qrels.jsonl")
+    parser.add_argument("--split-manifest", type=Path, default=EVAL_DIR / "split_manifest.json")
+    parser.add_argument("--corpus-manifest", type=Path, default=EVAL_DIR / "corpus_manifest.json")
+    parser.add_argument("--split", choices=["dev", "test", "all"], default="test")
     parser.add_argument("--output", type=Path, default=EVAL_DIR / "reports" / "challenge_matrix.md")
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--bootstrap", action="store_true")
@@ -79,6 +83,10 @@ def main() -> int:
                 "--api-url", args.api_url,
                 "--dataset", str(args.dataset),
                 "--fixture-dir", str(args.fixture_dir),
+                "--qrels", str(args.qrels),
+                "--split-manifest", str(args.split_manifest),
+                "--corpus-manifest", str(args.corpus_manifest),
+                "--split", args.split,
                 "--mode", mode,
                 "--endpoint", "search",
                 "--graph", graph,

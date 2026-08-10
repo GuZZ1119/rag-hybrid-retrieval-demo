@@ -6,6 +6,7 @@ import hashlib
 import json
 import mimetypes
 import os
+import re
 import sys
 import uuid
 from collections import Counter
@@ -20,6 +21,9 @@ from urllib.request import Request, urlopen
 EVAL_DIR = Path(__file__).resolve().parent
 DEFAULT_DATASET = EVAL_DIR / "golden_qa.jsonl"
 DEFAULT_FIXTURE_DIR = EVAL_DIR / "fixtures"
+DEFAULT_QRELS = EVAL_DIR / "qrels.jsonl"
+DEFAULT_SPLIT_MANIFEST = EVAL_DIR / "split_manifest.json"
+DEFAULT_CORPUS_MANIFEST = EVAL_DIR / "corpus_manifest.json"
 DEFAULT_REPORT = EVAL_DIR / "reports" / "latest.md"
 POSITIVE_CATEGORIES = {"keyword", "paraphrase", "relationship"}
 SCENARIOS = {"baseline", "cross_document", "distractor", "multi_condition", "negative", "semantic", "version_conflict"}
@@ -28,6 +32,10 @@ REQUEST_TIMEOUT_SECONDS = 300
 
 def normalize(value: str) -> str:
     return "".join(value.lower().split())
+
+
+def sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def load_dataset(path: Path) -> List[Dict[str, Any]]:
@@ -83,6 +91,143 @@ def validate_dataset(items: List[Dict[str, Any]]) -> None:
             raise ValueError(f"{item_id}: positive items need expected_file and expected_terms")
 
 
+def load_json_object(path: Path, label: str) -> Dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{path}: invalid {label} JSON: {error.msg}") from error
+    if not isinstance(value, dict):
+        raise ValueError(f"{path}: {label} must be a JSON object")
+    return value
+
+
+def load_split_manifest(path: Path, dataset_path: Path, item_ids: set[str]) -> Dict[str, List[str]]:
+    manifest = load_json_object(path, "split manifest")
+    if manifest.get("schemaVersion") != 1:
+        raise ValueError(f"{path}: unsupported split manifest schema")
+    if manifest.get("datasetSha256") != sha256_file(dataset_path):
+        raise ValueError(f"{path}: dataset SHA does not match {dataset_path.name}")
+    splits = manifest.get("splits")
+    if not isinstance(splits, dict) or set(splits) != {"dev", "test"}:
+        raise ValueError(f"{path}: splits must define exactly dev and test")
+
+    seen = set()
+    parsed: Dict[str, List[str]] = {}
+    for name in ("dev", "test"):
+        ids = splits[name]
+        if not isinstance(ids, list) or not ids or not all(isinstance(item_id, str) for item_id in ids):
+            raise ValueError(f"{path}: {name} split must contain non-empty string ids")
+        if len(ids) != len(set(ids)):
+            raise ValueError(f"{path}: {name} split contains duplicate ids")
+        unknown = set(ids) - item_ids
+        if unknown:
+            raise ValueError(f"{path}: {name} split contains unknown ids: {', '.join(sorted(unknown))}")
+        overlap = seen & set(ids)
+        if overlap:
+            raise ValueError(f"{path}: splits overlap: {', '.join(sorted(overlap))}")
+        seen.update(ids)
+        parsed[name] = ids
+    if seen != item_ids:
+        raise ValueError(f"{path}: splits must cover every dataset item exactly once")
+    return parsed
+
+
+def select_split(items: List[Dict[str, Any]], splits: Dict[str, List[str]], split: str) -> List[Dict[str, Any]]:
+    if split == "all":
+        return items
+    by_id = {item["id"]: item for item in items}
+    return [by_id[item_id] for item_id in splits[split]]
+
+
+def load_corpus_manifest(path: Path, fixture_dir: Path) -> Dict[str, Dict[str, str]]:
+    manifest = load_json_object(path, "corpus manifest")
+    if manifest.get("schemaVersion") != 1:
+        raise ValueError(f"{path}: unsupported corpus manifest schema")
+    chunking = manifest.get("chunking")
+    if not isinstance(chunking, dict) or chunking.get("chunkSize") != 400 or chunking.get("chunkOverlap") != 120:
+        raise ValueError(f"{path}: corpus manifest must freeze chunkSize=400 and chunkOverlap=120")
+    fixtures = manifest.get("fixtures")
+    if not isinstance(fixtures, list) or not fixtures:
+        raise ValueError(f"{path}: corpus manifest needs fixtures")
+
+    parsed: Dict[str, Dict[str, str]] = {}
+    for fixture in fixtures:
+        if not isinstance(fixture, dict):
+            raise ValueError(f"{path}: every fixture must be an object")
+        filename = fixture.get("filename")
+        file_id = fixture.get("fileId")
+        digest = fixture.get("sha256")
+        if not isinstance(filename, str) or not filename or Path(filename).name != filename:
+            raise ValueError(f"{path}: fixture filename is invalid")
+        if not isinstance(file_id, str) or not re_fullmatch_file_id(file_id):
+            raise ValueError(f"{path}: fixture {filename} has an invalid fileId")
+        if not isinstance(digest, str) or len(digest) != 64:
+            raise ValueError(f"{path}: fixture {filename} has an invalid SHA")
+        if filename in parsed:
+            raise ValueError(f"{path}: duplicate fixture {filename}")
+        fixture_path = fixture_dir / filename
+        if not fixture_path.is_file():
+            raise ValueError(f"{path}: missing fixture {fixture_path}")
+        if sha256_file(fixture_path) != digest:
+            raise ValueError(f"{path}: fixture SHA changed for {filename}")
+        parsed[filename] = {"fileId": file_id, "sha256": digest}
+
+    actual_filenames = {path.name for path in fixture_dir.iterdir() if path.is_file()}
+    if actual_filenames != set(parsed):
+        raise ValueError(f"{path}: manifest and fixture directory differ")
+    return parsed
+
+
+def re_fullmatch_file_id(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", value))
+
+
+def load_qrels(path: Path, items: List[Dict[str, Any]], corpus: Dict[str, Dict[str, str]]) -> Dict[str, Dict[str, int]]:
+    qrels: Dict[str, Dict[str, int]] = {}
+    for line_number, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise ValueError(f"{path}: invalid JSON on line {line_number}: {error.msg}") from error
+        query_id = record.get("query_id")
+        relevant = record.get("relevant")
+        if not isinstance(query_id, str) or not query_id or query_id in qrels:
+            raise ValueError(f"{path}: line {line_number} has an invalid or duplicate query_id")
+        if not isinstance(relevant, list) or not relevant:
+            raise ValueError(f"{path}: {query_id} needs at least one relevant chunk")
+        grades: Dict[str, int] = {}
+        for evidence in relevant:
+            chunk_id = evidence.get("chunk_id") if isinstance(evidence, dict) else None
+            grade = evidence.get("grade") if isinstance(evidence, dict) else None
+            if not isinstance(chunk_id, str) or not chunk_id or not isinstance(grade, int) or not 1 <= grade <= 3:
+                raise ValueError(f"{path}: {query_id} has invalid relevance evidence")
+            if chunk_id in grades:
+                raise ValueError(f"{path}: {query_id} has duplicate chunk_id {chunk_id}")
+            grades[chunk_id] = grade
+        qrels[query_id] = grades
+
+    positives = {item["id"] for item in items if item["category"] != "negative"}
+    negatives = {item["id"] for item in items if item["category"] == "negative"}
+    if set(qrels) != positives:
+        missing = positives - set(qrels)
+        extra = set(qrels) - positives
+        raise ValueError(f"{path}: qrels must match positive cases; missing={sorted(missing)}, extra={sorted(extra)}")
+    if negatives & set(qrels):
+        raise ValueError(f"{path}: negative cases must not have qrels")
+
+    expected_prefixes = {metadata["fileId"] for metadata in corpus.values()}
+    items_by_id = {item["id"]: item for item in items}
+    for query_id, grades in qrels.items():
+        if any(chunk_id.split(":", 1)[0] not in expected_prefixes for chunk_id in grades):
+            raise ValueError(f"{path}: {query_id} references a chunk outside the frozen corpus")
+        expected_file_id = corpus[items_by_id[query_id]["expected_file"]]["fileId"]
+        if any(chunk_id.split(":", 1)[0] != expected_file_id for chunk_id in grades):
+            raise ValueError(f"{path}: {query_id} qrels do not match the labelled source file")
+    return qrels
+
+
 def request_json(
     url: str,
     method: str = "GET",
@@ -100,10 +245,13 @@ def request_json(
         raise RuntimeError(f"could not reach API at {url}: {e.reason}") from e
 
 
-def upload_file(api_url: str, path: Path) -> Dict[str, Any]:
+def upload_file(api_url: str, path: Path, file_id: str) -> Dict[str, Any]:
     boundary = f"----rag-eval-{uuid.uuid4().hex}"
     content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     body = b"".join([
+        f"--{boundary}\r\n".encode(),
+        b'Content-Disposition: form-data; name="fileId"\r\n\r\n',
+        f"{file_id}\r\n".encode(),
         f"--{boundary}\r\n".encode(),
         f'Content-Disposition: form-data; name="file"; filename="{path.name}"\r\n'.encode(),
         f"Content-Type: {content_type}\r\n\r\n".encode(),
@@ -118,23 +266,29 @@ def upload_file(api_url: str, path: Path) -> Dict[str, Any]:
     )
 
 
-def bootstrap_fixtures(api_url: str, items: List[Dict[str, Any]], fixture_dir: Path, mode: str) -> List[str]:
-    expected_files = sorted({item["expected_file"] for item in items if item["expected_file"]})
-    missing_paths = [fixture_dir / filename for filename in expected_files if not (fixture_dir / filename).is_file()]
-    if missing_paths:
-        raise RuntimeError(f"fixture files are missing: {', '.join(str(path) for path in missing_paths)}")
-
-    fixture_paths = sorted(path for path in fixture_dir.iterdir() if path.is_file())
-    if not fixture_paths:
-        raise RuntimeError(f"no fixture files found in {fixture_dir}")
-
+def bootstrap_fixtures(api_url: str, fixture_dir: Path, corpus: Dict[str, Dict[str, str]], mode: str) -> List[str]:
     listed = request_json(f"{api_url}/files")
-    existing_filenames = {item.get("filename") for item in listed.get("files", [])}
+    existing_pairs = {
+        (item.get("fileId"), item.get("filename"))
+        for item in listed.get("files", [])
+    }
+    expected_pairs = {
+        (metadata["fileId"], filename)
+        for filename, metadata in corpus.items()
+    }
+    unexpected_pairs = existing_pairs - expected_pairs
+    if unexpected_pairs:
+        formatted = ", ".join(f"{file_id}:{filename}" for file_id, filename in sorted(unexpected_pairs))
+        raise RuntimeError(f"evaluation API is not isolated; unexpected uploaded files: {formatted}")
+
     uploaded = []
-    for path in fixture_paths:
-        if path.name not in existing_filenames:
-            upload_file(api_url, path)
-            uploaded.append(path.name)
+    for filename, metadata in sorted(corpus.items()):
+        pair = (metadata["fileId"], filename)
+        if pair not in existing_pairs:
+            response = upload_file(api_url, fixture_dir / filename, metadata["fileId"])
+            if response.get("fileId") != metadata["fileId"] or response.get("filename") != filename:
+                raise RuntimeError(f"evaluation upload did not preserve frozen identity for {filename}")
+            uploaded.append(filename)
 
     if mode == "TEXT":
         request_json(f"{api_url}/reindex", method="POST")
@@ -149,33 +303,17 @@ def bootstrap_fixtures(api_url: str, items: List[Dict[str, Any]], fixture_dir: P
     return uploaded
 
 
-def is_relevant(result: Dict[str, Any], item: Dict[str, Any]) -> bool:
-    if item["category"] == "negative":
-        return False
-    if result.get("filename") != item["expected_file"]:
-        return False
-    content = normalize(str(result.get("content", "")))
-    return all(normalize(term) in content for term in item["expected_terms"])
+def is_relevant(result: Dict[str, Any], qrel_grades: Dict[str, int]) -> bool:
+    return result.get("chunkId") in qrel_grades
 
 
-def relevance_grade(result: Dict[str, Any], item: Dict[str, Any]) -> int:
+def relevance_grade(result: Dict[str, Any], qrel_grades: Dict[str, int]) -> int:
     """Return the explicit graded relevance label for a retrieved chunk.
 
-    Golden cases currently require one exact evidence chunk. Keeping this helper
-    separate lets later cases add secondary supporting evidence without changing
-    the metric implementation.
+    Qrels are frozen to chunk IDs, so changing extraction logic or chunking
+    cannot silently redefine a correct retrieval result.
     """
-    if is_relevant(result, item):
-        return int(item.get("relevance_grade", 3))
-
-    for evidence in item.get("supporting_evidence", []):
-        if result.get("filename") != evidence.get("filename"):
-            continue
-        content = normalize(str(result.get("content", "")))
-        terms = evidence.get("terms", [])
-        if all(normalize(term) in content for term in terms):
-            return int(evidence.get("grade", 1))
-    return 0
+    return qrel_grades.get(str(result.get("chunkId")), 0)
 
 
 def citation_faithfulness(response: Dict[str, Any]) -> Optional[bool]:
@@ -197,10 +335,11 @@ def citation_faithfulness(response: Dict[str, Any]) -> Optional[bool]:
     )
 
 
-def evaluate_item(item: Dict[str, Any], response: Dict[str, Any], top_k: int) -> Dict[str, Any]:
+def evaluate_item(item: Dict[str, Any], response: Dict[str, Any], top_k: int, qrels: Dict[str, Dict[str, int]]) -> Dict[str, Any]:
     results = response.get("results", [])
     citations = response.get("citations")
-    relevance_grades = [relevance_grade(result, item) for result in results[:top_k]]
+    qrel_grades = qrels.get(item["id"], {})
+    relevance_grades = [relevance_grade(result, qrel_grades) for result in results[:top_k]]
     relevant_ranks = [rank for rank, grade in enumerate(relevance_grades, start=1) if grade > 0]
     return {
         "item": item,
@@ -215,12 +354,10 @@ def evaluate_item(item: Dict[str, Any], response: Dict[str, Any], top_k: int) ->
             normalize(str(path.get("entity", ""))) in {normalize(entity) for entity in item.get("expected_graph_entities", [])}
             for path in response.get("graphEvidence", [])
         ),
-        "citationMatch": None if citations is None else any(
-            citation.get("filename") == item.get("expected_file")
-            for citation in citations
-        ),
+        "citationMatch": None if citations is None else any(citation.get("chunkId") in qrel_grades for citation in citations),
         "citationFaithfulness": citation_faithfulness(response),
         "results": results[:top_k],
+        "qrelGrades": qrel_grades,
         "relevanceGrades": relevance_grades,
         "firstRelevantRank": relevant_ranks[0] if relevant_ranks else None,
         "relevantCount": len(relevant_ranks),
@@ -235,12 +372,7 @@ def precision_at_k(case: Dict[str, Any], k: int) -> float:
 def ndcg_at_k(case: Dict[str, Any], k: int) -> float:
     grades = case["relevanceGrades"][:k]
     dcg = sum((2**grade - 1) / log2(rank + 1) for rank, grade in enumerate(grades, start=1))
-    ideal_grades = sorted(
-        [int(case["item"].get("relevance_grade", 3))] + [
-            int(evidence.get("grade", 1)) for evidence in case["item"].get("supporting_evidence", [])
-        ],
-        reverse=True,
-    )[:k]
+    ideal_grades = sorted(case["qrelGrades"].values(), reverse=True)[:k]
     ideal_dcg = sum((2**grade - 1) / log2(rank + 1) for rank, grade in enumerate(ideal_grades, start=1))
     return dcg / ideal_dcg if ideal_dcg else 0.0
 
@@ -308,6 +440,10 @@ def format_rate(value: float) -> str:
 def build_metrics_payload(
     metrics: Dict[str, Any],
     dataset_path: Path,
+    qrels_path: Path,
+    split_manifest_path: Path,
+    corpus_manifest_path: Path,
+    split: str,
     api_url: str,
     top_k: int,
     mode: str,
@@ -319,6 +455,13 @@ def build_metrics_payload(
     return {
         "dataset": dataset_path.name,
         "datasetSha256": hashlib.sha256(dataset_path.read_bytes()).hexdigest(),
+        "qrels": qrels_path.name,
+        "qrelsSha256": sha256_file(qrels_path),
+        "splitManifest": split_manifest_path.name,
+        "splitManifestSha256": sha256_file(split_manifest_path),
+        "corpusManifest": corpus_manifest_path.name,
+        "corpusManifestSha256": sha256_file(corpus_manifest_path),
+        "split": split,
         "apiUrl": api_url,
         "mode": mode,
         "endpoint": endpoint,
@@ -330,7 +473,7 @@ def build_metrics_payload(
     }
 
 
-def render_report(cases: List[Dict[str, Any]], metrics: Dict[str, Any], api_url: str, top_k: int, mode: str, endpoint: str = "search", graph_enabled: bool = True) -> str:
+def render_report(cases: List[Dict[str, Any]], metrics: Dict[str, Any], api_url: str, top_k: int, mode: str, endpoint: str = "search", graph_enabled: bool = True, split: str = "test") -> str:
     category_counts = Counter(case["item"]["category"] for case in cases)
     scenario_counts = Counter(case["item"]["scenario"] for case in cases)
     report_name = "BM25" if mode == "TEXT" else mode
@@ -345,6 +488,7 @@ def render_report(cases: List[Dict[str, Any]], metrics: Dict[str, Any], api_url:
         f"- Search mode: `{mode}`",
         f"- Graph expansion: `{'enabled' if graph_enabled and mode == 'HYBRID' else 'disabled'}`",
         f"- Candidate depth: `{top_k}`",
+        f"- Evaluation split: `{split}`",
         f"- Dataset: `{len(cases)}` cases ({', '.join(f'{name}: {count}' for name, count in sorted(category_counts.items()))})",
         f"- Scenarios: {', '.join(f'{name}: {count}' for name, count in sorted(scenario_counts.items()))}",
         "",
@@ -389,7 +533,7 @@ def render_report(cases: List[Dict[str, Any]], metrics: Dict[str, Any], api_url:
                 f"### {item['id']}",
                 "",
                 f"- Query: {item['query']}",
-                f"- Expected evidence: `{item['expected_file']}` containing `{', '.join(item['expected_terms'])}`",
+                f"- Frozen relevant chunks: `{', '.join(sorted(case['qrelGrades']))}`",
                 "- Returned chunks:",
             ])
             if case["results"]:
@@ -423,6 +567,10 @@ def main() -> int:
     parser.add_argument("--api-url", default="http://localhost:8080", help="Demo API base URL.")
     parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET, help="Golden JSONL dataset path.")
     parser.add_argument("--fixture-dir", type=Path, default=DEFAULT_FIXTURE_DIR, help="Fixture documents directory.")
+    parser.add_argument("--qrels", type=Path, default=DEFAULT_QRELS, help="Frozen chunk-level qrels JSONL path.")
+    parser.add_argument("--split-manifest", type=Path, default=DEFAULT_SPLIT_MANIFEST, help="Fixed dev/test split manifest path.")
+    parser.add_argument("--corpus-manifest", type=Path, default=DEFAULT_CORPUS_MANIFEST, help="Frozen corpus manifest path.")
+    parser.add_argument("--split", choices=["dev", "test", "all"], default="test", help="Evaluation split; test is the default release gate.")
     parser.add_argument("--output", type=Path, default=DEFAULT_REPORT, help="Markdown report output path.")
     parser.add_argument("--metrics-output", type=Path, help="Machine-readable JSON metrics output path (defaults beside --output).")
     parser.add_argument("--top-k", type=int, default=10, choices=range(1, 51), metavar="1..50", help="Search candidate depth.")
@@ -446,17 +594,24 @@ def main() -> int:
         if args.endpoint == "ask" and args.mode != "HYBRID":
             raise ValueError("the ask endpoint only supports HYBRID mode")
         REQUEST_TIMEOUT_SECONDS = args.request_timeout
-        items = load_dataset(args.dataset)
+        all_items = load_dataset(args.dataset)
+        splits = load_split_manifest(args.split_manifest, args.dataset, {item["id"] for item in all_items})
+        corpus = load_corpus_manifest(args.corpus_manifest, args.fixture_dir)
+        qrels = load_qrels(args.qrels, all_items, corpus)
+        items = select_split(all_items, splits, args.split)
         if args.validate_only:
-            print(f"evaluation dataset is valid: {len(items)} cases")
+            print(f"evaluation assets are valid: {len(items)} {args.split} cases, {len(qrels)} frozen qrels")
             return 0
 
         api_url = args.api_url.rstrip("/")
         graph_enabled = args.graph == "enabled"
-        runtime_config = request_json(f"{api_url}/runtime/config")
         if args.bootstrap:
-            uploaded = bootstrap_fixtures(api_url, items, args.fixture_dir, args.mode)
+            uploaded = bootstrap_fixtures(api_url, args.fixture_dir, corpus, args.mode)
             print(f"fixture bootstrap complete; uploaded {len(uploaded)} file(s)")
+        runtime_config = request_json(f"{api_url}/runtime/config")
+        expected_chunking = load_json_object(args.corpus_manifest, "corpus manifest")["chunking"]
+        if runtime_config.get("chunkSize") != expected_chunking["chunkSize"] or runtime_config.get("chunkOverlap") != expected_chunking["chunkOverlap"]:
+            raise RuntimeError("API chunk configuration does not match the frozen corpus manifest")
 
         cases = []
         for item in items:
@@ -472,16 +627,30 @@ def main() -> int:
                     body=json.dumps({"q": item["query"], "topK": args.top_k, "graphEnabled": graph_enabled}).encode("utf-8"),
                     headers={"Content-Type": "application/json"},
                 )
-            cases.append(evaluate_item(item, response, args.top_k))
+            cases.append(evaluate_item(item, response, args.top_k, qrels))
 
         metrics = calculate_metrics(cases)
-        report = render_report(cases, metrics, api_url, args.top_k, args.mode, args.endpoint, graph_enabled)
+        report = render_report(cases, metrics, api_url, args.top_k, args.mode, args.endpoint, graph_enabled, args.split)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(report, encoding="utf-8")
         metrics_output = args.metrics_output or args.output.with_suffix(".json")
         metrics_output.write_text(
             json.dumps(
-                build_metrics_payload(metrics, args.dataset, api_url, args.top_k, args.mode, args.endpoint, graph_enabled, runtime_config, args.revision),
+                build_metrics_payload(
+                    metrics,
+                    args.dataset,
+                    args.qrels,
+                    args.split_manifest,
+                    args.corpus_manifest,
+                    args.split,
+                    api_url,
+                    args.top_k,
+                    args.mode,
+                    args.endpoint,
+                    graph_enabled,
+                    runtime_config,
+                    args.revision,
+                ),
                 ensure_ascii=False,
                 indent=2,
             ) + "\n",
