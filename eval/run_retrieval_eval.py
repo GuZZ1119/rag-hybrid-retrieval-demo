@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import mimetypes
+import os
 import sys
 import uuid
 from collections import Counter
@@ -237,6 +238,7 @@ def build_metrics_payload(
     endpoint: str,
     graph_enabled: bool,
     runtime_config: Dict[str, Any],
+    source_revision: str,
 ) -> Dict[str, Any]:
     return {
         "dataset": dataset_path.name,
@@ -246,6 +248,7 @@ def build_metrics_payload(
         "endpoint": endpoint,
         "topK": top_k,
         "graphEnabled": graph_enabled,
+        "sourceRevision": source_revision,
         "runtimeConfig": runtime_config,
         "metrics": metrics,
     }
@@ -342,6 +345,7 @@ def main() -> int:
     parser.add_argument("--mode", choices=["TEXT", "VECTOR", "HYBRID"], default="TEXT", help="Retrieval path to evaluate.")
     parser.add_argument("--endpoint", choices=["search", "ask"], default="search", help="API endpoint to evaluate.")
     parser.add_argument("--graph", choices=["enabled", "disabled"], default="enabled", help="Enable graph expansion for HYBRID evaluation.")
+    parser.add_argument("--revision", default=os.getenv("EVAL_REVISION", "unknown"), help="Source commit or revision recorded in the metric payload.")
     parser.add_argument(
         "--request-timeout",
         type=int,
@@ -393,7 +397,7 @@ def main() -> int:
         metrics_output = args.metrics_output or args.output.with_suffix(".json")
         metrics_output.write_text(
             json.dumps(
-                build_metrics_payload(metrics, args.dataset, api_url, args.top_k, args.mode, args.endpoint, graph_enabled, runtime_config),
+                build_metrics_payload(metrics, args.dataset, api_url, args.top_k, args.mode, args.endpoint, graph_enabled, runtime_config, args.revision),
                 ensure_ascii=False,
                 indent=2,
             ) + "\n",

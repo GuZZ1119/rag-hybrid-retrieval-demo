@@ -75,9 +75,11 @@ def main() -> None:
         "search",
         True,
         {"hybridRrfK": 60},
+        "test-revision",
     )
     assert payload["graphEnabled"] is True
     assert payload["runtimeConfig"]["hybridRrfK"] == 60
+    assert payload["sourceRevision"] == "test-revision"
     assert len(payload["datasetSha256"]) == 64
 
 

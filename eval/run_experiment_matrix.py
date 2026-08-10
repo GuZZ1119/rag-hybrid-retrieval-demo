@@ -54,6 +54,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path, default=EVAL_DIR / "reports" / "challenge_matrix.md")
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--bootstrap", action="store_true")
+    parser.add_argument("--revision", default=None, help="Source commit or revision recorded in every metrics payload.")
     args = parser.parse_args()
 
     try:
@@ -76,6 +77,8 @@ def main() -> int:
                 "--output", str(markdown_path),
                 "--metrics-output", str(metrics_path),
             ]
+            if args.revision is not None:
+                command.extend(["--revision", args.revision])
             if args.bootstrap:
                 command.append("--bootstrap")
             subprocess.run(command, check=True)

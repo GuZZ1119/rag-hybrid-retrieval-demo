@@ -6,6 +6,7 @@
   "endpoint": "search",
   "topK": 10,
   "graphEnabled": false,
+  "sourceRevision": "449addd",
   "runtimeConfig": {
     "chunkSize": 800,
     "chunkOverlap": 120,

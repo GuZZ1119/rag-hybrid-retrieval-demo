@@ -4,6 +4,11 @@ This file records project delivery commits with the date and the completed work.
 
 ## 2026-08-10
 
+- Added portfolio packaging: architecture and quality-loop diagrams, a measured challenge-results analysis, and a runnable three-minute demo script.
+- Added explicit source revision provenance to metric payloads and corrected README wording to describe the real vector, hybrid, and evidence-graph paths.
+
+## 2026-08-10
+
 - Added a reproducible `TEXT` / `VECTOR` / `HYBRID` / `HYBRID+Graph` experiment matrix and machine-readable metric payloads with dataset checksums and runtime configuration.
 - Added `graphEnabled` for fair graph-on versus graph-off HYBRID comparison and a runtime configuration endpoint for evaluation provenance.
 - Added an offline quality gate with documented regression tolerances and CI smoke coverage for experiment and gate logic.

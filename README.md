@@ -1,12 +1,12 @@
 RAG Hybrid Retrieval Demo (Sanitized)
 面向 RAG 的混合检索 Demo（脱敏版）
 
-A portfolio-friendly hybrid retrieval demo for RAG-style systems.
-This repository demonstrates a document-to-retrieval pipeline with support for full-text indexing, vector-ready design, and hybrid retrieval, designed to be clean, reproducible, and runnable on any machine.
+A portfolio-friendly, evidence-first Graph-Hybrid RAG demo for enterprise-file lookup.
+This repository demonstrates a document-to-answer pipeline with real BM25, vector k-NN, hybrid RRF, conditional source-grounded graph evidence, citations, evaluation, and regression gates.
 
 这是一个面向 RAG 场景的混合检索作品集 Demo。
 本仓库展示 文档 → 解析 → 分块 → 索引 → 检索（高亮） 的完整闭环，
-支持全文索引、向量检索扩展与混合检索设计，目标是做到 干净、可复现、任意新环境一键跑通。
+支持全文索引、真实向量检索、混合检索、条件图谱证据与可回测质量门禁，目标是做到干净、可复现、任意新环境一键跑通。
 
 ✅ This repository is sanitized / 本仓库已完成脱敏
 
@@ -15,6 +15,14 @@ No private tokens / IPs / passwords / 不包含任何私密 token / IP / 密码
 No internal business code / 不包含任何公司内部业务代码
 
 No environment-specific dependencies / 不依赖特定机器/特定环境路径
+
+## Portfolio Snapshot
+
+- 64 labelled challenge queries across keyword, paraphrase, relationship, version-conflict, distractor, multi-condition, and negative scenarios.
+- `TEXT`, `VECTOR`, `HYBRID`, and `HYBRID+Graph` experiment matrix with JSON configuration provenance and a regression gate.
+- Citation-first `/ask`, `NO_ANSWER`, privacy-minimized feedback, and a review queue for controlled improvement.
+
+Read [Architecture](docs/ARCHITECTURE.md), [Challenge Results](docs/RESULTS.md), and the [three-minute demo script](docs/DEMO_SCRIPT.md).
 
 🚀 What This Demo Shows / 本 Demo 展示内容
 Core Pipeline / 核心流程
@@ -147,7 +155,7 @@ This demo now supports index mode configuration to better reflect real RAG retri
 
 TEXT: full-text retrieval via OpenSearch (BM25-style)
 
-VECTOR: vector indexing pipeline (pluggable in demo)
+VECTOR: real OpenSearch k-NN vector retrieval
 
 HYBRID: combined workflow (TEXT + VECTOR)
 
@@ -155,7 +163,7 @@ HYBRID: combined workflow (TEXT + VECTOR)
 
 TEXT：OpenSearch 全文检索（BM25 风格）
 
-VECTOR：向量索引流程（Demo 中为可插拔/占位）
+VECTOR：真实 OpenSearch k-NN 向量检索
 
 HYBRID：混合流程（TEXT + VECTOR 组合）
 
@@ -183,7 +191,7 @@ A unified rebuild endpoint is provided to reconstruct index state deterministica
 
 TEXT: rebuild OpenSearch index entries
 
-VECTOR: trigger vector upsert pipeline (demo placeholder)
+VECTOR: rebuild embeddings and the OpenSearch k-NN index
 
 HYBRID: execute both steps
 
@@ -191,7 +199,7 @@ HYBRID: execute both steps
 
 TEXT：重建 OpenSearch 文本索引
 
-VECTOR：触发向量 upsert 流程（Demo 占位）
+VECTOR：重建 embedding 与 OpenSearch k-NN 索引
 
 HYBRID：两者都执行
 
@@ -243,11 +251,11 @@ This mirrors a production-grade retrieval pipeline where index state can be rebu
 
 🔀 Hybrid Retrieval Support / 混合检索支持
 
-This project is designed for hybrid retrieval workflows.
-The current demo focuses on searchable document indexing while preserving the design needed for combining keyword-based retrieval and vector-based retrieval.
+This project implements a hybrid retrieval workflow.
+The runnable demo combines keyword and vector candidate generation with RRF, then conditionally adds source-grounded graph evidence for relationship questions.
 
 本项目按混合检索工作流进行设计。
-当前 Demo 聚焦于可运行的文档索引与搜索闭环，同时保留了关键词检索与向量检索结合所需的结构设计。
+当前 Demo 已实现关键词与向量候选的 RRF 融合，并在关系问题中按条件补充可溯源的图谱证据。
 
 Hybrid retrieval design can support:
 
