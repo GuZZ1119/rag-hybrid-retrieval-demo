@@ -93,6 +93,10 @@ def test_text_helpers(kb):
     else:
         raise AssertionError("expected invalid overlap to fail")
 
+    config = kb.runtime_config()
+    assert config["hybridRrfK"] == kb.HYBRID_RRF_K
+    assert config["graphRrfWeight"] == kb.GRAPH_RRF_WEIGHT
+
 
 def test_extract_text(kb, temp_dir):
     text_path = Path(temp_dir.name) / "demo.txt"
@@ -276,6 +280,7 @@ async def test_upload_and_config(kb):
 
     await assert_raises_http_async(400, kb.upload, FakeUploadFile("bad.exe", b"content"))
     await assert_raises_http_async(413, kb.upload, FakeUploadFile("large.txt", b"x" * 65))
+    assert_raises_http(400, kb.ask, {"q": "test", "graphEnabled": "enabled"})
 
     cfg_resp = kb.set_index_config({"indexMode": "hybrid"})
     assert cfg_resp["ok"] is True

@@ -289,6 +289,14 @@ python eval/eval_smoke_test.py
 
 The fixtures are intentionally synthetic and should be used with a clean demo data volume, not a real knowledge base. See `eval/README.md` for the challenge-set design and its current diagnostic baseline.
 
+To compare `TEXT`, `VECTOR`, `HYBRID`, and `HYBRID+Graph` on the same challenge set, run:
+
+```bash
+docker compose exec kb-api python /app/eval/run_experiment_matrix.py --bootstrap
+```
+
+The comparison produces machine-readable metric payloads and can be checked with `eval/quality_gate.py` before accepting a retrieval configuration change.
+
 ## Vector Retrieval / 向量检索
 
 `VECTOR` is a real OpenSearch k-NN retrieval path. It stores normalized chunk embeddings in the separate `kb_demo_chunks_vector_v1` index, so the existing BM25 index remains safe and directly comparable.

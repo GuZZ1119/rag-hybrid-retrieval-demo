@@ -1,0 +1,45 @@
+{
+  "dataset": "golden_qa.jsonl",
+  "datasetSha256": "09347bfbbef467870ae51e10e026efd7798fea8dede8f6e05b2c72b72d148b96",
+  "apiUrl": "http://localhost:8080",
+  "mode": "TEXT",
+  "endpoint": "search",
+  "topK": 10,
+  "graphEnabled": false,
+  "runtimeConfig": {
+    "chunkSize": 800,
+    "chunkOverlap": 120,
+    "embeddingModel": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "embeddingDimension": 384,
+    "hybridCandidateK": 20,
+    "hybridRrfK": 60,
+    "graphRrfWeight": 0.1,
+    "noAnswerMinTextScore": 4.0,
+    "graphSeedLimit": 3,
+    "graphMaxPaths": 8
+  },
+  "metrics": {
+    "positive_cases": 46,
+    "negative_cases": 18,
+    "recall_at_3": 1.0,
+    "recall_at_5": 1.0,
+    "mrr_at_10": 0.9202898550724639,
+    "positive_answer_rate": 1.0,
+    "negative_no_answer_rate": 0.0,
+    "graph_evidence_coverage": 0.0,
+    "graph_route_rate": 0.0,
+    "graph_candidate_coverage": 0.0,
+    "difficulty_metrics": {
+      "challenge": {
+        "cases": 28,
+        "recall_at_3": 1.0,
+        "mrr_at_10": 0.9047619047619048
+      },
+      "standard": {
+        "cases": 18,
+        "recall_at_3": 1.0,
+        "mrr_at_10": 0.9444444444444444
+      }
+    }
+  }
+}

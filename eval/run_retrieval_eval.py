@@ -2,6 +2,7 @@
 """Run a small, repeatable retrieval evaluation against the demo API."""
 
 import argparse
+import hashlib
 import json
 import mimetypes
 import sys
@@ -227,7 +228,30 @@ def format_rate(value: float) -> str:
     return f"{value * 100:.1f}%"
 
 
-def render_report(cases: List[Dict[str, Any]], metrics: Dict[str, Any], api_url: str, top_k: int, mode: str, endpoint: str = "search") -> str:
+def build_metrics_payload(
+    metrics: Dict[str, Any],
+    dataset_path: Path,
+    api_url: str,
+    top_k: int,
+    mode: str,
+    endpoint: str,
+    graph_enabled: bool,
+    runtime_config: Dict[str, Any],
+) -> Dict[str, Any]:
+    return {
+        "dataset": dataset_path.name,
+        "datasetSha256": hashlib.sha256(dataset_path.read_bytes()).hexdigest(),
+        "apiUrl": api_url,
+        "mode": mode,
+        "endpoint": endpoint,
+        "topK": top_k,
+        "graphEnabled": graph_enabled,
+        "runtimeConfig": runtime_config,
+        "metrics": metrics,
+    }
+
+
+def render_report(cases: List[Dict[str, Any]], metrics: Dict[str, Any], api_url: str, top_k: int, mode: str, endpoint: str = "search", graph_enabled: bool = True) -> str:
     category_counts = Counter(case["item"]["category"] for case in cases)
     scenario_counts = Counter(case["item"]["scenario"] for case in cases)
     report_name = "BM25" if mode == "TEXT" else mode
@@ -240,6 +264,7 @@ def render_report(cases: List[Dict[str, Any]], metrics: Dict[str, Any], api_url:
         "",
         f"- API: `{api_url}`",
         f"- Search mode: `{mode}`",
+        f"- Graph expansion: `{'enabled' if graph_enabled and mode == 'HYBRID' else 'disabled'}`",
         f"- Candidate depth: `{top_k}`",
         f"- Dataset: `{len(cases)}` cases ({', '.join(f'{name}: {count}' for name, count in sorted(category_counts.items()))})",
         f"- Scenarios: {', '.join(f'{name}: {count}' for name, count in sorted(scenario_counts.items()))}",
@@ -312,9 +337,11 @@ def main() -> int:
     parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET, help="Golden JSONL dataset path.")
     parser.add_argument("--fixture-dir", type=Path, default=DEFAULT_FIXTURE_DIR, help="Fixture documents directory.")
     parser.add_argument("--output", type=Path, default=DEFAULT_REPORT, help="Markdown report output path.")
+    parser.add_argument("--metrics-output", type=Path, help="Machine-readable JSON metrics output path (defaults beside --output).")
     parser.add_argument("--top-k", type=int, default=10, choices=range(1, 51), metavar="1..50", help="Search candidate depth.")
     parser.add_argument("--mode", choices=["TEXT", "VECTOR", "HYBRID"], default="TEXT", help="Retrieval path to evaluate.")
     parser.add_argument("--endpoint", choices=["search", "ask"], default="search", help="API endpoint to evaluate.")
+    parser.add_argument("--graph", choices=["enabled", "disabled"], default="enabled", help="Enable graph expansion for HYBRID evaluation.")
     parser.add_argument(
         "--request-timeout",
         type=int,
@@ -337,6 +364,8 @@ def main() -> int:
             return 0
 
         api_url = args.api_url.rstrip("/")
+        graph_enabled = args.graph == "enabled"
+        runtime_config = request_json(f"{api_url}/runtime/config")
         if args.bootstrap:
             uploaded = bootstrap_fixtures(api_url, items, args.fixture_dir, args.mode)
             print(f"fixture bootstrap complete; uploaded {len(uploaded)} file(s)")
@@ -344,23 +373,35 @@ def main() -> int:
         cases = []
         for item in items:
             if args.endpoint == "search":
-                query = urlencode({"q": item["query"], "topK": args.top_k, "mode": args.mode})
+                query = urlencode({
+                    "q": item["query"], "topK": args.top_k, "mode": args.mode, "graphEnabled": str(graph_enabled).lower(),
+                })
                 response = request_json(f"{api_url}/search?{query}")
             else:
                 response = request_json(
                     f"{api_url}/ask",
                     method="POST",
-                    body=json.dumps({"q": item["query"], "topK": args.top_k}).encode("utf-8"),
+                    body=json.dumps({"q": item["query"], "topK": args.top_k, "graphEnabled": graph_enabled}).encode("utf-8"),
                     headers={"Content-Type": "application/json"},
                 )
             cases.append(evaluate_item(item, response, args.top_k))
 
         metrics = calculate_metrics(cases)
-        report = render_report(cases, metrics, api_url, args.top_k, args.mode, args.endpoint)
+        report = render_report(cases, metrics, api_url, args.top_k, args.mode, args.endpoint, graph_enabled)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(report, encoding="utf-8")
+        metrics_output = args.metrics_output or args.output.with_suffix(".json")
+        metrics_output.write_text(
+            json.dumps(
+                build_metrics_payload(metrics, args.dataset, api_url, args.top_k, args.mode, args.endpoint, graph_enabled, runtime_config),
+                ensure_ascii=False,
+                indent=2,
+            ) + "\n",
+            encoding="utf-8",
+        )
         print(report)
         print(f"report written to {args.output}")
+        print(f"metrics written to {metrics_output}")
         return 0
     except (OSError, RuntimeError, ValueError) as e:
         print(f"retrieval evaluation failed: {e}", file=sys.stderr)

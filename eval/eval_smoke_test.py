@@ -66,6 +66,20 @@ def main() -> None:
     assert "# VECTOR Retrieval Baseline" in report
     assert "Negative no-answer rate" in report
 
+    payload = evaluator.build_metrics_payload(
+        metrics,
+        evaluator.DEFAULT_DATASET,
+        "http://example.test",
+        10,
+        "HYBRID",
+        "search",
+        True,
+        {"hybridRrfK": 60},
+    )
+    assert payload["graphEnabled"] is True
+    assert payload["runtimeConfig"]["hybridRrfK"] == 60
+    assert len(payload["datasetSha256"]) == 64
+
 
 if __name__ == "__main__":
     main()

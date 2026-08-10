@@ -867,6 +867,23 @@ def health():
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/runtime/config")
+def runtime_config():
+    """Expose the retrieval settings required to reproduce an evaluation run."""
+    return {
+        "chunkSize": CHUNK_SIZE,
+        "chunkOverlap": CHUNK_OVERLAP,
+        "embeddingModel": EMBEDDING_MODEL,
+        "embeddingDimension": EMBEDDING_DIMENSION,
+        "hybridCandidateK": HYBRID_CANDIDATE_K,
+        "hybridRrfK": HYBRID_RRF_K,
+        "graphRrfWeight": GRAPH_RRF_WEIGHT,
+        "noAnswerMinTextScore": NO_ANSWER_MIN_TEXT_SCORE,
+        "graphSeedLimit": GRAPH_SEED_LIMIT,
+        "graphMaxPaths": GRAPH_MAX_PATHS,
+    }
+
+
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
     ensure_dirs()
@@ -1226,6 +1243,7 @@ def search(
     q: str = Query(..., min_length=1),
     topK: int = Query(10, ge=1, le=50),
     mode: str = Query("TEXT"),
+    graphEnabled: bool = Query(True),
 ):
     started_at = time.perf_counter()
     client = connect_os()
@@ -1286,7 +1304,11 @@ def search(
 
     if mode == "HYBRID":
         decision = decide_answer(mode, provisional_results)
-        graph_route = graph_route_decision(q, text_hits, vector_hits, decision)
+        graph_route = (
+            graph_route_decision(q, text_hits, vector_hits, decision)
+            if graphEnabled
+            else {"routed": False, "reason": "graph_disabled", "candidateOverlap": candidate_overlap_count(text_hits, vector_hits)}
+        )
         graph_evidence = graph_expand(client, q, provisional_results) if graph_route["routed"] else []
         graph_hits = graph_candidate_hits(client, graph_evidence) if graph_evidence else []
         if graph_hits:
@@ -1318,6 +1340,7 @@ def search(
         "count": len(results) if decision["status"] == "ANSWER" else 0,
         "results": results if decision["status"] == "ANSWER" else [],
         "graphRouted": graph_route["routed"],
+        "graphEnabled": graphEnabled if mode == "HYBRID" else False,
         "graphRouteReason": graph_route["reason"],
         "graphCandidateOverlap": graph_route["candidateOverlap"],
         "graphEvidence": graph_evidence,
@@ -1334,8 +1357,11 @@ def ask(body: Dict[str, Any]):
     requested_top_k = body.get("topK", 5)
     if not isinstance(requested_top_k, int) or isinstance(requested_top_k, bool) or not 1 <= requested_top_k <= 50:
         raise HTTPException(status_code=400, detail="topK must be an integer from 1 to 50")
+    graph_enabled = body.get("graphEnabled", True)
+    if not isinstance(graph_enabled, bool):
+        raise HTTPException(status_code=400, detail="graphEnabled must be a boolean")
 
-    retrieval = search(q=question.strip(), topK=requested_top_k, mode="HYBRID")
+    retrieval = search(q=question.strip(), topK=requested_top_k, mode="HYBRID", graphEnabled=graph_enabled)
     answer = compose_grounded_answer(question.strip(), retrieval, get_answer_generator())
     response = {**retrieval, **answer, "requestId": str(uuid.uuid4())}
     record_ask_event(response["requestId"], question.strip(), response)

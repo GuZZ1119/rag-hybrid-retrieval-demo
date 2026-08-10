@@ -2,6 +2,13 @@
 
 This file records project delivery commits with the date and the completed work. Add a new entry whenever a project change is pushed.
 
+## 2026-08-10
+
+- Added a reproducible `TEXT` / `VECTOR` / `HYBRID` / `HYBRID+Graph` experiment matrix and machine-readable metric payloads with dataset checksums and runtime configuration.
+- Added `graphEnabled` for fair graph-on versus graph-off HYBRID comparison and a runtime configuration endpoint for evaluation provenance.
+- Added an offline quality gate with documented regression tolerances and CI smoke coverage for experiment and gate logic.
+- Recorded the 64-case retrieval matrix: TEXT `MRR@10=0.920`, VECTOR `0.864`, HYBRID `0.931`, and HYBRID+Graph `0.931`; graph evidence coverage increased from `0.0%` to `40.0%` without a Recall@5 or MRR regression.
+
 ## 2026-08-09 23:20 AEST
 
 - Expanded the fixed Golden Set from 20 to 64 labelled cases: 22 keyword, 14 paraphrase, 10 relationship, and 18 negative queries.
