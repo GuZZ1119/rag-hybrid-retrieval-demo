@@ -2,10 +2,10 @@
   "dataset": "golden_qa.jsonl",
   "datasetSha256": "09347bfbbef467870ae51e10e026efd7798fea8dede8f6e05b2c72b72d148b96",
   "apiUrl": "http://localhost:8080",
-  "mode": "VECTOR",
-  "endpoint": "search",
+  "mode": "HYBRID",
+  "endpoint": "ask",
   "topK": 10,
-  "graphEnabled": false,
+  "graphEnabled": true,
   "sourceRevision": "working-tree-normalized-evaluation",
   "runtimeConfig": {
     "chunkSize": 400,
@@ -22,35 +22,38 @@
   "metrics": {
     "positive_cases": 46,
     "negative_cases": 18,
-    "recall_at_1": 0.5434782608695652,
-    "recall_at_3": 0.8913043478260869,
-    "recall_at_5": 0.9565217391304348,
-    "precision_at_3": 0.2971014492753623,
-    "precision_at_5": 0.19130434782608696,
-    "ndcg_at_3": 0.7458542942546648,
-    "ndcg_at_5": 0.7739418958681468,
-    "mrr_at_10": 0.7177536231884057,
+    "recall_at_1": 0.5652173913043478,
+    "recall_at_3": 0.9130434782608695,
+    "recall_at_5": 0.9782608695652174,
+    "precision_at_3": 0.30434782608695654,
+    "precision_at_5": 0.1956521739130435,
+    "ndcg_at_3": 0.773286022670815,
+    "ndcg_at_5": 0.8013736242842971,
+    "mrr_at_10": 0.7445652173913043,
     "positive_answer_rate": 1.0,
     "negative_no_answer_rate": 0.0,
-    "graph_evidence_coverage": 0.0,
-    "graph_route_rate": 0.0,
-    "graph_candidate_coverage": 0.0,
+    "graph_evidence_coverage": 0.4,
+    "graph_route_rate": 0.9,
+    "graph_candidate_coverage": 0.9,
+    "citation_coverage": 0.9130434782608695,
+    "extractive_citation_faithfulness": 1.0,
+    "faithfulness_evaluable_cases": 46,
     "difficulty_metrics": {
       "challenge": {
         "cases": 28,
         "recall_at_1": 0.5,
-        "recall_at_3": 0.8571428571428571,
-        "precision_at_3": 0.2857142857142857,
-        "ndcg_at_5": 0.7480956586456238,
-        "mrr_at_10": 0.681547619047619
+        "recall_at_3": 0.8928571428571429,
+        "precision_at_3": 0.29761904761904756,
+        "ndcg_at_5": 0.7692757463674965,
+        "mrr_at_10": 0.7083333333333333
       },
       "standard": {
         "cases": 18,
-        "recall_at_1": 0.6111111111111112,
+        "recall_at_1": 0.6666666666666666,
         "recall_at_3": 0.9444444444444444,
         "precision_at_3": 0.31481481481481477,
-        "ndcg_at_5": 0.8141471537698493,
-        "mrr_at_10": 0.7740740740740741
+        "ndcg_at_5": 0.8513036565993203,
+        "mrr_at_10": 0.8009259259259259
       }
     }
   }

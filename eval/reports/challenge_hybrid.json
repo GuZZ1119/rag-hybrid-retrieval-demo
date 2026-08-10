@@ -6,9 +6,9 @@
   "endpoint": "search",
   "topK": 10,
   "graphEnabled": false,
-  "sourceRevision": "449addd",
+  "sourceRevision": "working-tree-normalized-evaluation",
   "runtimeConfig": {
-    "chunkSize": 800,
+    "chunkSize": 400,
     "chunkOverlap": 120,
     "embeddingModel": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
     "embeddingDimension": 384,
@@ -22,24 +22,35 @@
   "metrics": {
     "positive_cases": 46,
     "negative_cases": 18,
-    "recall_at_3": 1.0,
-    "recall_at_5": 1.0,
-    "mrr_at_10": 0.9311594202898551,
+    "recall_at_1": 0.5652173913043478,
+    "recall_at_3": 0.9130434782608695,
+    "recall_at_5": 0.9782608695652174,
+    "precision_at_3": 0.30434782608695654,
+    "precision_at_5": 0.1956521739130435,
+    "ndcg_at_3": 0.773286022670815,
+    "ndcg_at_5": 0.8013736242842971,
+    "mrr_at_10": 0.7445652173913043,
     "positive_answer_rate": 1.0,
-    "negative_no_answer_rate": 0.16666666666666666,
+    "negative_no_answer_rate": 0.0,
     "graph_evidence_coverage": 0.0,
     "graph_route_rate": 0.0,
     "graph_candidate_coverage": 0.0,
     "difficulty_metrics": {
       "challenge": {
         "cases": 28,
-        "recall_at_3": 1.0,
-        "mrr_at_10": 0.9226190476190476
+        "recall_at_1": 0.5,
+        "recall_at_3": 0.8928571428571429,
+        "precision_at_3": 0.29761904761904756,
+        "ndcg_at_5": 0.7692757463674965,
+        "mrr_at_10": 0.7083333333333333
       },
       "standard": {
         "cases": 18,
-        "recall_at_3": 1.0,
-        "mrr_at_10": 0.9444444444444444
+        "recall_at_1": 0.6666666666666666,
+        "recall_at_3": 0.9444444444444444,
+        "precision_at_3": 0.31481481481481477,
+        "ndcg_at_5": 0.8513036565993203,
+        "mrr_at_10": 0.8009259259259259
       }
     }
   }

@@ -9,6 +9,7 @@ import os
 import sys
 import uuid
 from collections import Counter
+from math import log2
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 from urllib.error import HTTPError, URLError
@@ -157,10 +158,50 @@ def is_relevant(result: Dict[str, Any], item: Dict[str, Any]) -> bool:
     return all(normalize(term) in content for term in item["expected_terms"])
 
 
+def relevance_grade(result: Dict[str, Any], item: Dict[str, Any]) -> int:
+    """Return the explicit graded relevance label for a retrieved chunk.
+
+    Golden cases currently require one exact evidence chunk. Keeping this helper
+    separate lets later cases add secondary supporting evidence without changing
+    the metric implementation.
+    """
+    if is_relevant(result, item):
+        return int(item.get("relevance_grade", 3))
+
+    for evidence in item.get("supporting_evidence", []):
+        if result.get("filename") != evidence.get("filename"):
+            continue
+        content = normalize(str(result.get("content", "")))
+        terms = evidence.get("terms", [])
+        if all(normalize(term) in content for term in terms):
+            return int(evidence.get("grade", 1))
+    return 0
+
+
+def citation_faithfulness(response: Dict[str, Any]) -> Optional[bool]:
+    """Check whether the extractive fallback quotes a cited source preview.
+
+    This is intentionally not an LLM-as-judge score: an LLM answer is skipped
+    because semantic faithfulness needs a dedicated judge or human review.
+    """
+    if response.get("answerMode") != "EXTRACTIVE":
+        return None
+    answer = normalize(str(response.get("answer", "")))
+    citations = response.get("citations")
+    if not answer or not isinstance(citations, list) or not citations:
+        return False
+    return any(
+        normalize(str(citation.get("contentPreview", ""))) in answer
+        for citation in citations
+        if citation.get("contentPreview")
+    )
+
+
 def evaluate_item(item: Dict[str, Any], response: Dict[str, Any], top_k: int) -> Dict[str, Any]:
     results = response.get("results", [])
     citations = response.get("citations")
-    relevant_ranks = [rank for rank, result in enumerate(results[:top_k], start=1) if is_relevant(result, item)]
+    relevance_grades = [relevance_grade(result, item) for result in results[:top_k]]
+    relevant_ranks = [rank for rank, grade in enumerate(relevance_grades, start=1) if grade > 0]
     return {
         "item": item,
         "decision": response.get("decision", "ANSWER"),
@@ -178,10 +219,30 @@ def evaluate_item(item: Dict[str, Any], response: Dict[str, Any], top_k: int) ->
             citation.get("filename") == item.get("expected_file")
             for citation in citations
         ),
+        "citationFaithfulness": citation_faithfulness(response),
         "results": results[:top_k],
+        "relevanceGrades": relevance_grades,
         "firstRelevantRank": relevant_ranks[0] if relevant_ranks else None,
         "relevantCount": len(relevant_ranks),
     }
+
+
+def precision_at_k(case: Dict[str, Any], k: int) -> float:
+    grades = case["relevanceGrades"][:k]
+    return sum(grade > 0 for grade in grades) / k
+
+
+def ndcg_at_k(case: Dict[str, Any], k: int) -> float:
+    grades = case["relevanceGrades"][:k]
+    dcg = sum((2**grade - 1) / log2(rank + 1) for rank, grade in enumerate(grades, start=1))
+    ideal_grades = sorted(
+        [int(case["item"].get("relevance_grade", 3))] + [
+            int(evidence.get("grade", 1)) for evidence in case["item"].get("supporting_evidence", [])
+        ],
+        reverse=True,
+    )[:k]
+    ideal_dcg = sum((2**grade - 1) / log2(rank + 1) for rank, grade in enumerate(ideal_grades, start=1))
+    return dcg / ideal_dcg if ideal_dcg else 0.0
 
 
 def calculate_metrics(cases: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
@@ -193,6 +254,10 @@ def calculate_metrics(cases: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         case for case in positive_cases
         if case["citationMatch"] is not None
     ]
+    faithfulness_cases = [
+        case for case in positive_cases
+        if case["citationFaithfulness"] is not None
+    ]
     if not positive_cases:
         raise ValueError("evaluation dataset has no positive cases")
 
@@ -200,8 +265,13 @@ def calculate_metrics(cases: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     metrics: Dict[str, Any] = {
         "positive_cases": positive_count,
         "negative_cases": len(negative_cases),
+        "recall_at_1": sum(case["firstRelevantRank"] == 1 for case in positive_cases) / positive_count,
         "recall_at_3": sum(case["firstRelevantRank"] is not None and case["firstRelevantRank"] <= 3 for case in positive_cases) / positive_count,
         "recall_at_5": sum(case["firstRelevantRank"] is not None and case["firstRelevantRank"] <= 5 for case in positive_cases) / positive_count,
+        "precision_at_3": sum(precision_at_k(case, 3) for case in positive_cases) / positive_count,
+        "precision_at_5": sum(precision_at_k(case, 5) for case in positive_cases) / positive_count,
+        "ndcg_at_3": sum(ndcg_at_k(case, 3) for case in positive_cases) / positive_count,
+        "ndcg_at_5": sum(ndcg_at_k(case, 5) for case in positive_cases) / positive_count,
         "mrr_at_10": sum(1 / case["firstRelevantRank"] if case["firstRelevantRank"] else 0 for case in positive_cases) / positive_count,
         "positive_answer_rate": sum(case["decision"] == "ANSWER" for case in positive_cases) / positive_count,
     }
@@ -213,12 +283,18 @@ def calculate_metrics(cases: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         metrics["graph_candidate_coverage"] = sum(case["graphCandidateMatch"] for case in relationship_cases) / len(relationship_cases)
     if citation_cases:
         metrics["citation_coverage"] = sum(case["citationMatch"] for case in citation_cases) / len(citation_cases)
+    if faithfulness_cases:
+        metrics["extractive_citation_faithfulness"] = sum(case["citationFaithfulness"] for case in faithfulness_cases) / len(faithfulness_cases)
+        metrics["faithfulness_evaluable_cases"] = len(faithfulness_cases)
     difficulty_metrics = {}
     for difficulty in sorted({case["item"].get("difficulty", "standard") for case in positive_cases}):
         difficulty_cases = [case for case in positive_cases if case["item"].get("difficulty", "standard") == difficulty]
         difficulty_metrics[difficulty] = {
             "cases": len(difficulty_cases),
+            "recall_at_1": sum(case["firstRelevantRank"] == 1 for case in difficulty_cases) / len(difficulty_cases),
             "recall_at_3": sum(case["firstRelevantRank"] is not None and case["firstRelevantRank"] <= 3 for case in difficulty_cases) / len(difficulty_cases),
+            "precision_at_3": sum(precision_at_k(case, 3) for case in difficulty_cases) / len(difficulty_cases),
+            "ndcg_at_5": sum(ndcg_at_k(case, 5) for case in difficulty_cases) / len(difficulty_cases),
             "mrr_at_10": sum(1 / case["firstRelevantRank"] if case["firstRelevantRank"] else 0 for case in difficulty_cases) / len(difficulty_cases),
         }
     metrics["difficulty_metrics"] = difficulty_metrics
@@ -274,8 +350,13 @@ def render_report(cases: List[Dict[str, Any]], metrics: Dict[str, Any], api_url:
         "",
         "| Metric | Result |",
         "| --- | --- |",
+        f"| Recall@1 | {format_rate(metrics['recall_at_1'])} |",
         f"| Recall@3 | {format_rate(metrics['recall_at_3'])} |",
         f"| Recall@5 | {format_rate(metrics['recall_at_5'])} |",
+        f"| Precision@3 (one-label) | {format_rate(metrics['precision_at_3'])} |",
+        f"| Precision@5 (one-label) | {format_rate(metrics['precision_at_5'])} |",
+        f"| nDCG@3 | {metrics['ndcg_at_3']:.3f} |",
+        f"| nDCG@5 | {metrics['ndcg_at_5']:.3f} |",
         f"| MRR@10 | {metrics['mrr_at_10']:.3f} |",
         f"| Positive answer rate | {format_rate(metrics['positive_answer_rate'])} |",
     ]
@@ -287,11 +368,14 @@ def render_report(cases: List[Dict[str, Any]], metrics: Dict[str, Any], api_url:
         lines.append(f"| Graph candidate coverage (relationship) | {format_rate(metrics['graph_candidate_coverage'])} |")
     if "citation_coverage" in metrics:
         lines.append(f"| Citation coverage | {format_rate(metrics['citation_coverage'])} |")
+    if "extractive_citation_faithfulness" in metrics:
+        lines.append(f"| Extractive citation faithfulness | {format_rate(metrics['extractive_citation_faithfulness'])} |")
+        lines.append(f"| Faithfulness evaluable cases | {metrics['faithfulness_evaluable_cases']} |")
 
-    lines.extend(["", "## Retrieval by Difficulty", "", "| Difficulty | Cases | Recall@3 | MRR@10 |", "| --- | ---: | ---: | ---: |"])
+    lines.extend(["", "## Retrieval by Difficulty", "", "| Difficulty | Cases | Recall@1 | Recall@3 | Precision@3 | nDCG@5 | MRR@10 |", "| --- | ---: | ---: | ---: | ---: | ---: | ---: |"])
     for difficulty, values in metrics.get("difficulty_metrics", {}).items():
         lines.append(
-            f"| {difficulty} | {values['cases']} | {format_rate(values['recall_at_3'])} | {values['mrr_at_10']:.3f} |"
+            f"| {difficulty} | {values['cases']} | {format_rate(values['recall_at_1'])} | {format_rate(values['recall_at_3'])} | {format_rate(values['precision_at_3'])} | {values['ndcg_at_5']:.3f} | {values['mrr_at_10']:.3f} |"
         )
 
     failed_cases = [case for case in cases if case["item"]["category"] != "negative" and case["firstRelevantRank"] is None]

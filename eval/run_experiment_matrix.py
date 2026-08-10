@@ -17,7 +17,16 @@ CONFIGURATIONS: List[Tuple[str, str, str]] = [
     ("HYBRID", "HYBRID", "disabled"),
     ("HYBRID+Graph", "HYBRID", "enabled"),
 ]
-DISPLAY_METRICS = ["recall_at_3", "recall_at_5", "mrr_at_10", "negative_no_answer_rate", "graph_evidence_coverage"]
+DISPLAY_METRICS = [
+    "recall_at_1",
+    "recall_at_3",
+    "recall_at_5",
+    "precision_at_3",
+    "ndcg_at_5",
+    "mrr_at_10",
+    "negative_no_answer_rate",
+    "graph_evidence_coverage",
+]
 
 
 def format_metric(metric: str, value: Any) -> str:
@@ -36,8 +45,8 @@ def render_matrix(payloads: Dict[str, Dict[str, Any]]) -> str:
         "",
         "This matrix compares the same labelled dataset with graph expansion disabled and enabled.",
         "",
-        "| Path | Recall@3 | Recall@5 | MRR@10 | Negative no-answer | Graph evidence |",
-        "| --- | ---: | ---: | ---: | ---: | ---: |",
+        "| Path | Recall@1 | Recall@3 | Recall@5 | Precision@3 | nDCG@5 | MRR@10 | Negative no-answer | Graph evidence |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for label, _, _ in CONFIGURATIONS:
         metrics = payloads[label]["metrics"]

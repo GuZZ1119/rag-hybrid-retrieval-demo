@@ -43,7 +43,7 @@
       - OPENSEARCH_INDEX=kb_demo_chunks
       - OPENSEARCH_VECTOR_INDEX=kb_demo_chunks_vector_v1
       - OPENSEARCH_GRAPH_INDEX=kb_demo_evidence_graph_v1
-      - CHUNK_SIZE=800
+      - CHUNK_SIZE=400
       - CHUNK_OVERLAP=120
       - EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
       - EMBEDDING_DIMENSION=384

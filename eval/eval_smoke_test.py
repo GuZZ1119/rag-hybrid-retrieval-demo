@@ -31,8 +31,13 @@ def main() -> None:
         top_k=10,
     )
     metrics = evaluator.calculate_metrics([hit_case, miss_case, negative_case])
+    assert metrics["recall_at_1"] == 0.5
     assert metrics["recall_at_3"] == 0.5
     assert metrics["recall_at_5"] == 0.5
+    assert metrics["precision_at_3"] == 1 / 6
+    assert metrics["precision_at_5"] == 0.1
+    assert metrics["ndcg_at_3"] == 0.5
+    assert metrics["ndcg_at_5"] == 0.5
     assert metrics["mrr_at_10"] == 0.5
     assert metrics["positive_answer_rate"] == 0.5
     assert metrics["negative_no_answer_rate"] == 1.0
@@ -56,14 +61,34 @@ def main() -> None:
 
     ask_case = evaluator.evaluate_item(
         positive,
-        {"decision": "ANSWER", "results": [relevant_result], "citations": [{"filename": "incident_response_guide.txt"}]},
+        {
+            "decision": "ANSWER",
+            "results": [relevant_result],
+            "answerMode": "EXTRACTIVE",
+            "answer": "Evidence from incident_response_guide.txt: P1 事故应在 15分钟内升级给事故指挥官。",
+            "citations": [{
+                "filename": "incident_response_guide.txt",
+                "contentPreview": "P1 事故应在 15分钟内升级给事故指挥官。",
+            }],
+        },
         top_k=10,
     )
     ask_metrics = evaluator.calculate_metrics([ask_case])
     assert ask_metrics["citation_coverage"] == 1.0
+    assert ask_metrics["extractive_citation_faithfulness"] == 1.0
+    assert ask_metrics["faithfulness_evaluable_cases"] == 1
+
+    llm_case = evaluator.evaluate_item(
+        positive,
+        {"decision": "ANSWER", "results": [relevant_result], "answerMode": "LLM", "answer": "A paraphrased answer.", "citations": []},
+        top_k=10,
+    )
+    assert llm_case["citationFaithfulness"] is None
 
     report = evaluator.render_report([hit_case, miss_case, negative_case], metrics, "http://example.test", 10, "VECTOR")
     assert "# VECTOR Retrieval Baseline" in report
+    assert "Precision@3" in report
+    assert "nDCG@5" in report
     assert "Negative no-answer rate" in report
 
     payload = evaluator.build_metrics_payload(

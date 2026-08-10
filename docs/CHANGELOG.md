@@ -4,6 +4,13 @@ This file records project delivery commits with the date and the completed work.
 
 ## 2026-08-10
 
+- Recalibrated the challenge corpus with 400-character chunks and five vocabulary-overlapping historical archive documents, replacing the misleading near-single-chunk `Recall@3/5=100%` result with a denser, version-conflict retrieval pool.
+- Added `Recall@1`, `Precision@3/5`, `nDCG@3/5`, and extractive citation-faithfulness evaluation, with offline smoke coverage and quality-gate tolerances for ranking and extractive faithfulness metrics.
+- Recorded the dense-corpus matrix: HYBRID `Recall@5=97.8%`, `nDCG@5=0.801`, `MRR@10=0.745`; HYBRID+Graph preserves Recall@5 while providing `40.0%` relationship graph-evidence coverage at a visible small ranking cost.
+- Recorded the HYBRID `/ask` baseline: `Citation coverage=91.3%`, extractive citation faithfulness `100.0%` on 46 evaluable positive answers, and negative no-answer rate `0.0%`, which is now the next calibration target.
+
+## 2026-08-10
+
 - Added portfolio packaging: architecture and quality-loop diagrams, a measured challenge-results analysis, and a runnable three-minute demo script.
 - Added explicit source revision provenance to metric payloads and corrected README wording to describe the real vector, hybrid, and evidence-graph paths.
 

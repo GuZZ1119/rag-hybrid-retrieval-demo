@@ -10,9 +10,12 @@ from typing import Any, Dict, List
 
 DEFAULT_MIN_DELTAS = {
     "recall_at_5": -0.05,
+    "precision_at_3": -0.05,
+    "ndcg_at_5": -0.05,
     "mrr_at_10": -0.03,
     "negative_no_answer_rate": -0.05,
     "citation_coverage": -0.05,
+    "extractive_citation_faithfulness": -0.05,
 }
 
 
@@ -53,9 +56,12 @@ def main() -> int:
     parser.add_argument("--baseline", type=Path, required=True, help="Accepted metrics JSON payload.")
     parser.add_argument("--candidate", type=Path, required=True, help="Candidate metrics JSON payload.")
     parser.add_argument("--min-recall-at-5-delta", type=float, default=DEFAULT_MIN_DELTAS["recall_at_5"])
+    parser.add_argument("--min-precision-at-3-delta", type=float, default=DEFAULT_MIN_DELTAS["precision_at_3"])
+    parser.add_argument("--min-ndcg-at-5-delta", type=float, default=DEFAULT_MIN_DELTAS["ndcg_at_5"])
     parser.add_argument("--min-mrr-at-10-delta", type=float, default=DEFAULT_MIN_DELTAS["mrr_at_10"])
     parser.add_argument("--min-negative-no-answer-delta", type=float, default=DEFAULT_MIN_DELTAS["negative_no_answer_rate"])
     parser.add_argument("--min-citation-coverage-delta", type=float, default=DEFAULT_MIN_DELTAS["citation_coverage"])
+    parser.add_argument("--min-extractive-citation-faithfulness-delta", type=float, default=DEFAULT_MIN_DELTAS["extractive_citation_faithfulness"])
     args = parser.parse_args()
 
     try:
@@ -63,9 +69,12 @@ def main() -> int:
         candidate = load_payload(args.candidate)
         min_deltas = {
             "recall_at_5": args.min_recall_at_5_delta,
+            "precision_at_3": args.min_precision_at_3_delta,
+            "ndcg_at_5": args.min_ndcg_at_5_delta,
             "mrr_at_10": args.min_mrr_at_10_delta,
             "negative_no_answer_rate": args.min_negative_no_answer_delta,
             "citation_coverage": args.min_citation_coverage_delta,
+            "extractive_citation_faithfulness": args.min_extractive_citation_faithfulness_delta,
         }
         errors = compare_metrics(baseline, candidate, min_deltas)
         if errors:
