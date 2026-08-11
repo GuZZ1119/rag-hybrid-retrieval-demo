@@ -1,10 +1,10 @@
 {
   "dataset": "golden_qa.jsonl",
-  "datasetSha256": "09347bfbbef467870ae51e10e026efd7798fea8dede8f6e05b2c72b72d148b96",
+  "datasetSha256": "a36f5bec457f21da0dd0697e8638f28fef1caeb05c096c9663d68d8d42f3551c",
   "qrels": "qrels.jsonl",
-  "qrelsSha256": "a0fafe5bd756ed9f9f8307fe05f3677c479691b77b954da9ec508788e0a85a4a",
+  "qrelsSha256": "71b7af7ed3db10cfc2a9dac72c10f4b8aa10c6c4d13f244645bce3acac2a9405",
   "splitManifest": "split_manifest.json",
-  "splitManifestSha256": "96e97bf505d47e8961d21d9de43f8f1aa454734d341e7ea3a7163f754a4a7417",
+  "splitManifestSha256": "73f95c908eefe8116ca0e0c04c88d68f5ace3bab2687127a0aea26d816850d07",
   "corpusManifest": "corpus_manifest.json",
   "corpusManifestSha256": "46587ec66ea8a8f024641a0f7c39a67466583e2fd342db8f5b674127ac535f06",
   "split": "test",
@@ -13,7 +13,7 @@
   "endpoint": "search",
   "topK": 10,
   "graphEnabled": true,
-  "sourceRevision": "9d5d3fb",
+  "sourceRevision": "0a6f51c",
   "runtimeConfig": {
     "chunkSize": 400,
     "chunkOverlap": 120,
@@ -27,29 +27,29 @@
     "graphMaxPaths": 8
   },
   "metrics": {
-    "positive_cases": 31,
+    "positive_cases": 34,
     "negative_cases": 13,
-    "recall_at_1": 0.5806451612903226,
-    "recall_at_3": 0.9032258064516129,
-    "recall_at_5": 0.967741935483871,
-    "precision_at_3": 0.30107526881720426,
-    "precision_at_5": 0.1935483870967742,
-    "ndcg_at_3": 0.7630531860599126,
-    "ndcg_at_5": 0.7908387704517443,
-    "mrr_at_10": 0.7365591397849462,
+    "recall_at_1": 0.6176470588235294,
+    "recall_at_3": 0.9117647058823529,
+    "recall_at_5": 0.9705882352941176,
+    "precision_at_3": 0.3235294117647059,
+    "precision_at_5": 0.20588235294117646,
+    "ndcg_at_3": 0.7676996233241439,
+    "ndcg_at_5": 0.7930335385049317,
+    "mrr_at_10": 0.7598039215686274,
     "positive_answer_rate": 1.0,
     "negative_no_answer_rate": 0.0,
-    "graph_evidence_coverage": 0.5,
-    "graph_route_rate": 1.0,
-    "graph_candidate_coverage": 1.0,
+    "graph_evidence_coverage": 0.36363636363636365,
+    "graph_route_rate": 0.8181818181818182,
+    "graph_candidate_coverage": 0.8181818181818182,
     "difficulty_metrics": {
       "challenge": {
-        "cases": 19,
-        "recall_at_1": 0.5789473684210527,
-        "recall_at_3": 0.8947368421052632,
-        "precision_at_3": 0.2982456140350877,
-        "ndcg_at_5": 0.7870734511768012,
-        "mrr_at_10": 0.7412280701754387
+        "cases": 22,
+        "recall_at_1": 0.6363636363636364,
+        "recall_at_3": 0.9090909090909091,
+        "precision_at_3": 0.3333333333333333,
+        "ndcg_at_5": 0.7909788180692195,
+        "mrr_at_10": 0.7765151515151515
       },
       "standard": {
         "cases": 12,
@@ -60,5 +60,778 @@
         "mrr_at_10": 0.7291666666666666
       }
     }
-  }
+  },
+  "caseMetrics": [
+    {
+      "id": "procurement-device-request",
+      "category": "keyword",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 1.0,
+        "ndcg_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "reimbursement-travel-evidence",
+      "category": "keyword",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 1.0,
+        "ndcg_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "incident-postmortem",
+      "category": "keyword",
+      "values": {
+        "recall_at_1": 0.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 0.6309297535714575,
+        "ndcg_at_5": 0.6309297535714575,
+        "mrr_at_10": 0.5,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "incident-owner",
+      "category": "paraphrase",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 1.0,
+        "ndcg_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "remote-personal-device",
+      "category": "keyword",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 1.0,
+        "ndcg_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "negative-gym-benefit",
+      "category": "negative",
+      "values": {
+        "negative_no_answer_rate": 0.0
+      }
+    },
+    {
+      "id": "procurement-approval-paraphrase",
+      "category": "paraphrase",
+      "values": {
+        "recall_at_1": 0.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 0.5,
+        "ndcg_at_5": 0.5,
+        "mrr_at_10": 0.3333333333333333,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "reimbursement-deadline-paraphrase",
+      "category": "paraphrase",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 1.0,
+        "ndcg_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "incident-severity-paraphrase",
+      "category": "paraphrase",
+      "values": {
+        "recall_at_1": 0.0,
+        "recall_at_3": 0.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.0,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 0.0,
+        "ndcg_at_5": 0.43067655807339306,
+        "mrr_at_10": 0.25,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "reimbursement-procurement-sequence",
+      "category": "relationship",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 1.0,
+        "ndcg_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "procurement-2026-finance",
+      "category": "keyword",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 1.0,
+        "ndcg_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "procurement-2026-software-security",
+      "category": "keyword",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 1.0,
+        "ndcg_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "travel-international-deadline",
+      "category": "keyword",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 1.0,
+        "ndcg_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "access-exception-approval",
+      "category": "keyword",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 1.0,
+        "ndcg_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "access-exception-production-data",
+      "category": "keyword",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 1.0,
+        "ndcg_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "retention-p1-postmortem",
+      "category": "keyword",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 1.0,
+        "ndcg_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "change-standard-approval",
+      "category": "keyword",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 1.0,
+        "ndcg_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "travel-international-paraphrase",
+      "category": "paraphrase",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 1.0,
+        "ndcg_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "access-temporary-paraphrase",
+      "category": "paraphrase",
+      "values": {
+        "recall_at_1": 0.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 0.5,
+        "ndcg_at_5": 0.5,
+        "mrr_at_10": 0.3333333333333333,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "access-expiry-paraphrase",
+      "category": "paraphrase",
+      "values": {
+        "recall_at_1": 0.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 0.6309297535714575,
+        "ndcg_at_5": 0.6309297535714575,
+        "mrr_at_10": 0.5,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "retention-customer-paraphrase",
+      "category": "paraphrase",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 1.0,
+        "ndcg_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "retention-incident-paraphrase",
+      "category": "paraphrase",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 1.0,
+        "ndcg_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "change-production-paraphrase",
+      "category": "paraphrase",
+      "values": {
+        "recall_at_1": 0.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 0.5,
+        "ndcg_at_5": 0.5,
+        "mrr_at_10": 0.3333333333333333,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "change-emergency-paraphrase",
+      "category": "paraphrase",
+      "values": {
+        "recall_at_1": 0.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 0.5,
+        "ndcg_at_5": 0.5,
+        "mrr_at_10": 0.3333333333333333,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "vendor-onboarding-paraphrase",
+      "category": "paraphrase",
+      "values": {
+        "recall_at_1": 0.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 0.5,
+        "ndcg_at_5": 0.5,
+        "mrr_at_10": 0.3333333333333333,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "procurement-payment-link",
+      "category": "relationship",
+      "values": {
+        "recall_at_1": 0.0,
+        "recall_at_3": 0.0,
+        "recall_at_5": 0.0,
+        "precision_at_3": 0.0,
+        "precision_at_5": 0.0,
+        "ndcg_at_3": 0.0,
+        "ndcg_at_5": 0.0,
+        "mrr_at_10": 0.16666666666666666,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "travel-deadline-link",
+      "category": "relationship",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 1.0,
+        "ndcg_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "external-data-link",
+      "category": "relationship",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 1.0,
+        "ndcg_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "incident-change-link",
+      "category": "relationship",
+      "values": {
+        "recall_at_1": 0.0,
+        "recall_at_3": 0.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.0,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 0.0,
+        "ndcg_at_5": 0.43067655807339306,
+        "mrr_at_10": 0.25,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "incident-retention-link",
+      "category": "relationship",
+      "values": {
+        "recall_at_1": 0.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 0.6309297535714575,
+        "ndcg_at_5": 0.6309297535714575,
+        "mrr_at_10": 0.5,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "vendor-customer-data-link",
+      "category": "relationship",
+      "values": {
+        "recall_at_1": 0.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 0.6309297535714575,
+        "ndcg_at_5": 0.6309297535714575,
+        "mrr_at_10": 0.5,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "vendor-access-link",
+      "category": "relationship",
+      "values": {
+        "recall_at_1": 0.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 0.6309297535714575,
+        "ndcg_at_5": 0.6309297535714575,
+        "mrr_at_10": 0.5,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "negative-commute-benefit",
+      "category": "negative",
+      "values": {
+        "negative_no_answer_rate": 0.0
+      }
+    },
+    {
+      "id": "negative-training",
+      "category": "negative",
+      "values": {
+        "negative_no_answer_rate": 0.0
+      }
+    },
+    {
+      "id": "negative-parental-leave",
+      "category": "negative",
+      "values": {
+        "negative_no_answer_rate": 0.0
+      }
+    },
+    {
+      "id": "negative-birthday",
+      "category": "negative",
+      "values": {
+        "negative_no_answer_rate": 0.0
+      }
+    },
+    {
+      "id": "negative-insurance",
+      "category": "negative",
+      "values": {
+        "negative_no_answer_rate": 0.0
+      }
+    },
+    {
+      "id": "negative-relocation",
+      "category": "negative",
+      "values": {
+        "negative_no_answer_rate": 0.0
+      }
+    },
+    {
+      "id": "negative-laptop-color",
+      "category": "negative",
+      "values": {
+        "negative_no_answer_rate": 0.0
+      }
+    },
+    {
+      "id": "negative-seat",
+      "category": "negative",
+      "values": {
+        "negative_no_answer_rate": 0.0
+      }
+    },
+    {
+      "id": "negative-pet",
+      "category": "negative",
+      "values": {
+        "negative_no_answer_rate": 0.0
+      }
+    },
+    {
+      "id": "negative-meal-card",
+      "category": "negative",
+      "values": {
+        "negative_no_answer_rate": 0.0
+      }
+    },
+    {
+      "id": "negative-holiday-trip",
+      "category": "negative",
+      "values": {
+        "negative_no_answer_rate": 0.0
+      }
+    },
+    {
+      "id": "negative-referral",
+      "category": "negative",
+      "values": {
+        "negative_no_answer_rate": 0.0
+      }
+    },
+    {
+      "id": "version-conflict-procurement-35000",
+      "category": "relationship",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.6666666666666666,
+        "precision_at_5": 0.4,
+        "ndcg_at_3": 0.8339912323981488,
+        "ndcg_at_5": 0.8339912323981488,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "multihop-external-customer-data",
+      "category": "relationship",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.3333333333333333,
+        "precision_at_5": 0.2,
+        "ndcg_at_3": 0.6131471927654584,
+        "ndcg_at_5": 0.6131471927654584,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    },
+    {
+      "id": "multihop-p1-change-retention",
+      "category": "relationship",
+      "values": {
+        "recall_at_1": 1.0,
+        "recall_at_3": 1.0,
+        "recall_at_5": 1.0,
+        "precision_at_3": 0.6666666666666666,
+        "precision_at_5": 0.4,
+        "ndcg_at_3": 1.0,
+        "ndcg_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "positive_answer_rate": 1.0,
+        "citation_coverage": null,
+        "citation_correctness": null,
+        "citation_completeness": null,
+        "answer_correctness": null,
+        "extractive_claim_faithfulness": null
+      }
+    }
+  ]
 }

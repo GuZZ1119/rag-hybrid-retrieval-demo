@@ -25,7 +25,7 @@ The denser corpus intentionally reveals three unfinished quality issues:
 
 1. **No-answer calibration:** none of 13 test negatives are rejected (`0.0%`). The current lexical threshold accepts policy-adjacent but unsupported questions. Tune this only on the dev split, then report the untouched test result.
 2. **Graph evidence coverage:** 4 of 11 held-out relationship questions return the expected shared entity path (`36.4%`). The router and graph candidate coverage are both `81.8%`, so the main gap remains entity-path precision rather than router availability.
-3. **Answer completeness:** the held-out HYBRID `/ask` run has `Answer correctness=54.4%`, `Citation correctness=32.4%`, and `Citation completeness` will expose any uncited required source in a multi-evidence claim. The extractive fallback's `Extractive claim faithfulness=100.0%` only means each copied clause appears in a cited preview; it does not validate an LLM paraphrase.
+3. **Answer completeness:** the held-out HYBRID `/ask` run has `Answer correctness=54.4%`, `Citation correctness=32.4%`, and `Citation completeness=89.7%`. The extractive fallback's `Extractive claim faithfulness=100.0%` only means each copied clause appears in a cited preview; it does not validate an LLM paraphrase.
 
 These figures are not production claims. The corpus is synthetic; the value of this project is that the limitations are measurable, reproducible, and protected by a quality gate. Current reports also include `Recall@1`, `Precision@3/5`, `nDCG@3/5`, and extractive citation faithfulness. The last metric is deliberately limited to the extractive fallback; an LLM answer needs a judge model or human review before claiming semantic faithfulness.
 

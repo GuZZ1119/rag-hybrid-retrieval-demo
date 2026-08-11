@@ -1,0 +1,46 @@
+{
+  "results": [
+    {
+      "metric": "recall_at_5",
+      "pairedCases": 34,
+      "baselineMean": 0.9705882352941176,
+      "candidateMean": 0.9705882352941176,
+      "observedDelta": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "probabilityCandidateGreater": 0.0,
+      "samples": 2000,
+      "seed": 7
+    },
+    {
+      "metric": "ndcg_at_5",
+      "pairedCases": 34,
+      "baselineMean": 0.7930335385049317,
+      "candidateMean": 0.7930335385049317,
+      "observedDelta": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "probabilityCandidateGreater": 0.0,
+      "samples": 2000,
+      "seed": 7
+    },
+    {
+      "metric": "mrr_at_10",
+      "pairedCases": 34,
+      "baselineMean": 0.7598039215686274,
+      "candidateMean": 0.7598039215686274,
+      "observedDelta": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "probabilityCandidateGreater": 0.0,
+      "samples": 2000,
+      "seed": 7
+    }
+  ]
+}
