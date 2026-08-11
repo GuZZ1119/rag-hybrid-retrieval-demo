@@ -13,7 +13,7 @@ The benchmark is deliberately separated from the interactive demo environment.
 
 ## Dataset Design
 
-The full set has 64 labelled cases: 20 development and 44 test. The evaluation corpus has 16 files: 11 controlled policy documents and 5 explicitly marked historical archives with overlapping vocabulary. With the frozen 400-character chunk size and 120-character overlap, this produces a multi-chunk retrieval pool instead of treating each source file as one candidate.
+The full set has 68 labelled cases: 21 development and 47 held-out test. The evaluation corpus has 16 files: 11 controlled policy documents and 5 explicitly marked historical archives with overlapping vocabulary. The test split includes version-conflict and multi-hop cases whose qrels require evidence from more than one frozen chunk. With the frozen 400-character chunk size and 120-character overlap, this produces a multi-chunk retrieval pool instead of treating each source file as one candidate.
 
 - 22 keyword queries
 - 14 paraphrased queries
@@ -31,6 +31,10 @@ Positive cases identify one expected evidence chunk through a file and source te
 - `nDCG@3/5`: rank-sensitive graded relevance. Primary evidence has grade 3 and future labels may add grade-1 supporting evidence.
 - `MRR@10`: reciprocal rank of the first labelled evidence chunk.
 - `Extractive citation faithfulness`: only for the runnable extractive fallback. It checks that the returned answer includes a cited source preview. It intentionally skips `answerMode=LLM`; semantic LLM faithfulness still needs an LLM judge or human annotation.
+- `Extractive claim faithfulness`: splits the extractive answer into sentence-level clauses and verifies each clause against cited previews. It is deterministic for the fallback and intentionally does not score LLM paraphrases.
+- `Answer correctness (reference claims)`: percentage of annotated atomic claims whose required terms appear in the answer. It makes incomplete multi-hop answers visible without claiming semantic equivalence.
+- `Citation correctness`: percentage of returned citations that point to a chunk supporting at least one annotated atomic claim.
+- `Citation completeness`: percentage of atomic claims for which every required supporting chunk is cited. Multi-evidence claims therefore fail this metric when one required source is missing.
 
 ## Current Challenge Baseline
 
@@ -56,9 +60,11 @@ docker compose exec kb-eval-api python /app/eval/quality_gate.py \
   --candidate /app/eval/reports/candidate_hybrid_graph.json
 ```
 
-The default gate allows small documented movement (`Recall@5`, `Precision@3`, `nDCG@5`, no-answer rate, citation coverage, and extractive citation faithfulness: 5 points; `MRR@10`: 0.03) but rejects larger regressions or a changed dataset checksum. Metrics not applicable to an endpoint are skipped, so run the gate on like-for-like `/search` or `/ask` payloads.
+The default gate allows small documented movement (`Recall@5`, `Precision@3`, `nDCG@5`, no-answer rate, citation coverage, extractive citation faithfulness, extractive claim faithfulness, answer correctness, citation correctness, and citation completeness: 5 points; `MRR@10`: 0.03) but rejects larger regressions or a changed dataset checksum. Metrics not applicable to an endpoint are skipped, so run the gate on like-for-like `/search` or `/ask` payloads.
 
 The accepted test matrix is stored in `reports/challenge_matrix.md`. Its JSON payload must contain matching dataset, qrels, split-manifest, corpus-manifest, runtime configuration, and source-revision provenance before it is compared by the quality gate.
+
+`run_experiment_matrix.py` also writes `reports/challenge_hybrid_graph_bootstrap.md`. It reports a paired, non-parametric bootstrap 95% confidence interval for HYBRID+Graph minus HYBRID on the same test cases. A confidence interval spanning zero is not evidence of a reliable graph ranking improvement.
 
 ## Run
 

@@ -2,6 +2,12 @@
 
 This file records project delivery commits with the date and the completed work. Add a new entry whenever a project change is pushed.
 
+## 2026-08-11
+
+- Added four labelled multi-evidence cases across dev and held-out test: current-versus-archived procurement policy conflicts, external access plus customer-data controls, and P1 emergency-change plus retention evidence.
+- Added reference-claim answer labels, extractive claim-level faithfulness, answer correctness, citation correctness, and all-required-source citation completeness. These metrics deliberately expose the extractive fallback's incomplete multi-evidence answers instead of treating retrieval recall as answer quality.
+- Added per-case metric artifacts and a paired non-parametric bootstrap report with 2,000 resamples and 95% percentile confidence intervals for HYBRID versus HYBRID+Graph.
+
 ## 2026-08-10
 
 - Added an isolated `kb-eval-api` service with dedicated data volume and `kb_eval_*` OpenSearch indexes; evaluation rejects any uploaded document outside the frozen corpus manifest.

@@ -44,3 +44,7 @@
 {"query_id":"incident-retention-link","relevant":[{"chunk_id":"eval-5bf655b66b677cd5:0","grade":3}]}
 {"query_id":"vendor-customer-data-link","relevant":[{"chunk_id":"eval-8d806959f6e688f9:0","grade":3}]}
 {"query_id":"vendor-access-link","relevant":[{"chunk_id":"eval-d66d440f184d06cd:0","grade":3}]}
+{"query_id":"version-conflict-procurement-35000","relevant":[{"chunk_id":"eval-9ed96d018587d5ff:0","grade":3},{"chunk_id":"eval-efb41f0a631a3b32:0","grade":2}]}
+{"query_id":"multihop-external-customer-data","relevant":[{"chunk_id":"eval-d66d440f184d06cd:0","grade":3},{"chunk_id":"eval-7483368e35ae8ddb:0","grade":3}]}
+{"query_id":"multihop-p1-change-retention","relevant":[{"chunk_id":"eval-cf557a6693fa26a1:0","grade":3},{"chunk_id":"eval-5bf655b66b677cd5:0","grade":3}]}
+{"query_id":"version-conflict-urgent-payment","relevant":[{"chunk_id":"eval-9ed96d018587d5ff:0","grade":3},{"chunk_id":"eval-efb41f0a631a3b32:1","grade":2}]}

@@ -16,6 +16,10 @@ DEFAULT_MIN_DELTAS = {
     "negative_no_answer_rate": -0.05,
     "citation_coverage": -0.05,
     "extractive_citation_faithfulness": -0.05,
+    "extractive_claim_faithfulness": -0.05,
+    "answer_correctness": -0.05,
+    "citation_correctness": -0.05,
+    "citation_completeness": -0.05,
 }
 
 
@@ -72,6 +76,10 @@ def main() -> int:
     parser.add_argument("--min-negative-no-answer-delta", type=float, default=DEFAULT_MIN_DELTAS["negative_no_answer_rate"])
     parser.add_argument("--min-citation-coverage-delta", type=float, default=DEFAULT_MIN_DELTAS["citation_coverage"])
     parser.add_argument("--min-extractive-citation-faithfulness-delta", type=float, default=DEFAULT_MIN_DELTAS["extractive_citation_faithfulness"])
+    parser.add_argument("--min-extractive-claim-faithfulness-delta", type=float, default=DEFAULT_MIN_DELTAS["extractive_claim_faithfulness"])
+    parser.add_argument("--min-answer-correctness-delta", type=float, default=DEFAULT_MIN_DELTAS["answer_correctness"])
+    parser.add_argument("--min-citation-correctness-delta", type=float, default=DEFAULT_MIN_DELTAS["citation_correctness"])
+    parser.add_argument("--min-citation-completeness-delta", type=float, default=DEFAULT_MIN_DELTAS["citation_completeness"])
     args = parser.parse_args()
 
     try:
@@ -85,6 +93,10 @@ def main() -> int:
             "negative_no_answer_rate": args.min_negative_no_answer_delta,
             "citation_coverage": args.min_citation_coverage_delta,
             "extractive_citation_faithfulness": args.min_extractive_citation_faithfulness_delta,
+            "extractive_claim_faithfulness": args.min_extractive_claim_faithfulness_delta,
+            "answer_correctness": args.min_answer_correctness_delta,
+            "citation_correctness": args.min_citation_correctness_delta,
+            "citation_completeness": args.min_citation_completeness_delta,
         }
         errors = compare_metrics(baseline, candidate, min_deltas)
         if errors:

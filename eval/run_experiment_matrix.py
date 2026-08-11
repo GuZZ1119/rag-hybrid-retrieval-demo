@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Tuple
 
 EVAL_DIR = Path(__file__).resolve().parent
 EVALUATOR = EVAL_DIR / "run_retrieval_eval.py"
+PAIRED_BOOTSTRAP = EVAL_DIR / "paired_bootstrap.py"
 CONFIGURATIONS: List[Tuple[str, str, str]] = [
     ("TEXT", "TEXT", "disabled"),
     ("VECTOR", "VECTOR", "disabled"),
@@ -65,6 +66,8 @@ def main() -> int:
     parser.add_argument("--corpus-manifest", type=Path, default=EVAL_DIR / "corpus_manifest.json")
     parser.add_argument("--split", choices=["dev", "test", "all"], default="test")
     parser.add_argument("--output", type=Path, default=EVAL_DIR / "reports" / "challenge_matrix.md")
+    parser.add_argument("--bootstrap-output", type=Path, help="Paired-bootstrap report path (defaults beside --output).")
+    parser.add_argument("--bootstrap-samples", type=int, default=2000)
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--bootstrap", action="store_true")
     parser.add_argument("--revision", default=None, help="Source commit or revision recorded in every metrics payload.")
@@ -72,6 +75,8 @@ def main() -> int:
 
     try:
         args.output.parent.mkdir(parents=True, exist_ok=True)
+        if args.bootstrap_samples < 100:
+            raise ValueError("bootstrap samples must be at least 100")
         payloads: Dict[str, Dict[str, Any]] = {}
         for label, mode, graph in CONFIGURATIONS:
             stem = label.lower().replace("+", "_").replace(" ", "_")
@@ -102,8 +107,18 @@ def main() -> int:
             payloads[label] = json.loads(metrics_path.read_text(encoding="utf-8"))
 
         args.output.write_text(render_matrix(payloads), encoding="utf-8")
+        bootstrap_output = args.bootstrap_output or args.output.parent / "challenge_hybrid_graph_bootstrap.md"
+        subprocess.run([
+            sys.executable,
+            str(PAIRED_BOOTSTRAP),
+            "--baseline", str(args.output.parent / "challenge_hybrid.json"),
+            "--candidate", str(args.output.parent / "challenge_hybrid_graph.json"),
+            "--samples", str(args.bootstrap_samples),
+            "--output", str(bootstrap_output),
+        ], check=True)
         print(args.output.read_text(encoding="utf-8"), end="")
         print(f"comparison written to {args.output}")
+        print(f"paired bootstrap written to {bootstrap_output}")
         return 0
     except (OSError, ValueError, json.JSONDecodeError, subprocess.CalledProcessError) as error:
         print(f"experiment matrix failed: {error}", file=sys.stderr)

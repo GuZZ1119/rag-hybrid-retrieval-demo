@@ -14,11 +14,11 @@ def main() -> None:
     corpus = evaluator.load_corpus_manifest(evaluator.DEFAULT_CORPUS_MANIFEST, evaluator.DEFAULT_FIXTURE_DIR)
     splits = evaluator.load_split_manifest(evaluator.DEFAULT_SPLIT_MANIFEST, evaluator.DEFAULT_DATASET, {item["id"] for item in items})
     qrels = evaluator.load_qrels(evaluator.DEFAULT_QRELS, items, corpus)
-    assert len(items) == 64
-    assert len(splits["dev"]) == 20
-    assert len(splits["test"]) == 44
-    assert len(evaluator.select_split(items, splits, "test")) == 44
-    assert len(qrels) == 46
+    assert len(items) == 68
+    assert len(splits["dev"]) == 21
+    assert len(splits["test"]) == 47
+    assert len(evaluator.select_split(items, splits, "test")) == 47
+    assert len(qrels) == 50
     assert {item["category"] for item in items} == {"keyword", "paraphrase", "relationship", "negative"}
     assert {item["scenario"] for item in items} == evaluator.SCENARIOS
 
@@ -86,6 +86,17 @@ def main() -> None:
     assert ask_metrics["citation_coverage"] == 1.0
     assert ask_metrics["extractive_citation_faithfulness"] == 1.0
     assert ask_metrics["faithfulness_evaluable_cases"] == 1
+    assert ask_metrics["extractive_claim_faithfulness"] == 1.0
+    assert ask_metrics["answer_correctness"] == 1.0
+    assert ask_metrics["citation_correctness"] == 1.0
+    assert ask_metrics["citation_completeness"] == 1.0
+
+    multihop = next(item for item in items if item["id"] == "multihop-p1-change-retention")
+    multihop_claims = evaluator.reference_claims(multihop, qrels[multihop["id"]])
+    assert len(multihop_claims) == 2
+    assert {"eval-cf557a6693fa26a1:0", "eval-5bf655b66b677cd5:0"} == {
+        chunk_id for claim in multihop_claims for chunk_id in claim["supportingChunkIds"]
+    }
 
     llm_case = evaluator.evaluate_item(
         positive,
@@ -102,6 +113,7 @@ def main() -> None:
 
     payload = evaluator.build_metrics_payload(
         metrics,
+        [hit_case, miss_case, negative_case],
         evaluator.DEFAULT_DATASET,
         evaluator.DEFAULT_QRELS,
         evaluator.DEFAULT_SPLIT_MANIFEST,
@@ -121,6 +133,7 @@ def main() -> None:
     assert payload["runtimeConfig"]["hybridRrfK"] == 60
     assert payload["sourceRevision"] == "test-revision"
     assert len(payload["datasetSha256"]) == 64
+    assert len(payload["caseMetrics"]) == 3
 
 
 if __name__ == "__main__":

@@ -223,8 +223,8 @@ def load_qrels(path: Path, items: List[Dict[str, Any]], corpus: Dict[str, Dict[s
         if any(chunk_id.split(":", 1)[0] not in expected_prefixes for chunk_id in grades):
             raise ValueError(f"{path}: {query_id} references a chunk outside the frozen corpus")
         expected_file_id = corpus[items_by_id[query_id]["expected_file"]]["fileId"]
-        if any(chunk_id.split(":", 1)[0] != expected_file_id for chunk_id in grades):
-            raise ValueError(f"{path}: {query_id} qrels do not match the labelled source file")
+        if not any(chunk_id.split(":", 1)[0] == expected_file_id for chunk_id in grades):
+            raise ValueError(f"{path}: {query_id} qrels must include the labelled primary source file")
     return qrels
 
 
@@ -316,6 +316,43 @@ def relevance_grade(result: Dict[str, Any], qrel_grades: Dict[str, int]) -> int:
     return qrel_grades.get(str(result.get("chunkId")), 0)
 
 
+def reference_claims(item: Dict[str, Any], qrel_grades: Dict[str, int]) -> List[Dict[str, Any]]:
+    """Return atomic answer labels, defaulting legacy cases to their primary evidence terms."""
+    raw_claims = item.get("reference_claims")
+    if raw_claims is None:
+        raw_claims = [{
+            "id": "primary",
+            "required_terms": item["expected_terms"],
+            "supporting_chunk_ids": sorted(qrel_grades),
+        }]
+    if not isinstance(raw_claims, list) or not raw_claims:
+        raise ValueError(f"{item['id']}: reference_claims must be a non-empty list")
+
+    claims = []
+    seen_ids = set()
+    for raw_claim in raw_claims:
+        if not isinstance(raw_claim, dict):
+            raise ValueError(f"{item['id']}: reference claim must be an object")
+        claim_id = raw_claim.get("id")
+        terms = raw_claim.get("required_terms")
+        supporting_chunk_ids = raw_claim.get("supporting_chunk_ids")
+        if not isinstance(claim_id, str) or not claim_id or claim_id in seen_ids:
+            raise ValueError(f"{item['id']}: reference claim id is invalid or duplicated")
+        if not isinstance(terms, list) or not terms or not all(isinstance(term, str) and term for term in terms):
+            raise ValueError(f"{item['id']}: reference claim {claim_id} needs required_terms")
+        if not isinstance(supporting_chunk_ids, list) or not supporting_chunk_ids or not all(isinstance(chunk_id, str) for chunk_id in supporting_chunk_ids):
+            raise ValueError(f"{item['id']}: reference claim {claim_id} needs supporting_chunk_ids")
+        if not set(supporting_chunk_ids) <= set(qrel_grades):
+            raise ValueError(f"{item['id']}: reference claim {claim_id} cites chunks outside qrels")
+        seen_ids.add(claim_id)
+        claims.append({
+            "id": claim_id,
+            "requiredTerms": terms,
+            "supportingChunkIds": supporting_chunk_ids,
+        })
+    return claims
+
+
 def citation_faithfulness(response: Dict[str, Any]) -> Optional[bool]:
     """Check whether the extractive fallback quotes a cited source preview.
 
@@ -335,10 +372,49 @@ def citation_faithfulness(response: Dict[str, Any]) -> Optional[bool]:
     )
 
 
+def extractive_claim_support(response: Dict[str, Any]) -> Optional[List[bool]]:
+    """Evaluate each extractive answer clause against the returned citation previews."""
+    if response.get("answerMode") != "EXTRACTIVE":
+        return None
+    answer = str(response.get("answer", ""))
+    if ":" in answer:
+        answer = answer.split(":", 1)[1]
+    claims = [segment.strip() for segment in re.split(r"[。！？!?]+", answer) if len(normalize(segment)) >= 4]
+    citations = response.get("citations")
+    previews = [normalize(str(citation.get("contentPreview", ""))) for citation in citations or []]
+    if not claims or not previews:
+        return [False]
+    return [
+        any(normalize(claim) in preview or preview in normalize(claim) for preview in previews if preview)
+        for claim in claims
+    ]
+
+
 def evaluate_item(item: Dict[str, Any], response: Dict[str, Any], top_k: int, qrels: Dict[str, Dict[str, int]]) -> Dict[str, Any]:
     results = response.get("results", [])
     citations = response.get("citations")
     qrel_grades = qrels.get(item["id"], {})
+    claims = [] if item["category"] == "negative" else reference_claims(item, qrel_grades)
+    cited_chunk_ids = {
+        citation.get("chunkId")
+        for citation in citations or []
+        if citation.get("chunkId")
+    }
+    support_chunk_ids = {
+        chunk_id
+        for claim in claims
+        for chunk_id in claim["supportingChunkIds"]
+    }
+    has_answer = isinstance(response.get("answer"), str)
+    normalized_answer = normalize(str(response.get("answer", "")))
+    claim_correctness = [
+        all(normalize(term) in normalized_answer for term in claim["requiredTerms"])
+        for claim in claims
+    ]
+    citation_completeness = [
+        set(claim["supportingChunkIds"]) <= cited_chunk_ids
+        for claim in claims
+    ]
     relevance_grades = [relevance_grade(result, qrel_grades) for result in results[:top_k]]
     relevant_ranks = [rank for rank, grade in enumerate(relevance_grades, start=1) if grade > 0]
     return {
@@ -356,6 +432,11 @@ def evaluate_item(item: Dict[str, Any], response: Dict[str, Any], top_k: int, qr
         ),
         "citationMatch": None if citations is None else any(citation.get("chunkId") in qrel_grades for citation in citations),
         "citationFaithfulness": citation_faithfulness(response),
+        "claimFaithfulness": extractive_claim_support(response),
+        "referenceClaims": claims,
+        "answerCorrectness": None if not claims or not has_answer else sum(claim_correctness) / len(claim_correctness),
+        "citationCorrectness": None if citations is None or not citations else sum(chunk_id in support_chunk_ids for chunk_id in cited_chunk_ids) / len(cited_chunk_ids),
+        "citationCompleteness": None if citations is None or not claims else sum(citation_completeness) / len(citation_completeness),
         "results": results[:top_k],
         "qrelGrades": qrel_grades,
         "relevanceGrades": relevance_grades,
@@ -377,6 +458,29 @@ def ndcg_at_k(case: Dict[str, Any], k: int) -> float:
     return dcg / ideal_dcg if ideal_dcg else 0.0
 
 
+def case_metric_values(case: Dict[str, Any]) -> Dict[str, Optional[float]]:
+    item = case["item"]
+    if item["category"] == "negative":
+        return {"negative_no_answer_rate": float(case["decision"] == "NO_ANSWER")}
+    claim_faithfulness = case["claimFaithfulness"]
+    return {
+        "recall_at_1": float(case["firstRelevantRank"] == 1),
+        "recall_at_3": float(case["firstRelevantRank"] is not None and case["firstRelevantRank"] <= 3),
+        "recall_at_5": float(case["firstRelevantRank"] is not None and case["firstRelevantRank"] <= 5),
+        "precision_at_3": precision_at_k(case, 3),
+        "precision_at_5": precision_at_k(case, 5),
+        "ndcg_at_3": ndcg_at_k(case, 3),
+        "ndcg_at_5": ndcg_at_k(case, 5),
+        "mrr_at_10": 1 / case["firstRelevantRank"] if case["firstRelevantRank"] else 0.0,
+        "positive_answer_rate": float(case["decision"] == "ANSWER"),
+        "citation_coverage": None if case["citationMatch"] is None else float(case["citationMatch"]),
+        "citation_correctness": case["citationCorrectness"],
+        "citation_completeness": case["citationCompleteness"],
+        "answer_correctness": case["answerCorrectness"],
+        "extractive_claim_faithfulness": None if claim_faithfulness is None else sum(claim_faithfulness) / len(claim_faithfulness),
+    }
+
+
 def calculate_metrics(cases: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     cases = list(cases)
     positive_cases = [case for case in cases if case["item"]["category"] != "negative"]
@@ -390,6 +494,10 @@ def calculate_metrics(cases: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         case for case in positive_cases
         if case["citationFaithfulness"] is not None
     ]
+    claim_faithfulness_cases = [case for case in positive_cases if case["claimFaithfulness"] is not None]
+    answer_cases = [case for case in positive_cases if case["answerCorrectness"] is not None]
+    citation_correctness_cases = [case for case in positive_cases if case["citationCorrectness"] is not None]
+    citation_completeness_cases = [case for case in positive_cases if case["citationCompleteness"] is not None]
     if not positive_cases:
         raise ValueError("evaluation dataset has no positive cases")
 
@@ -418,6 +526,16 @@ def calculate_metrics(cases: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     if faithfulness_cases:
         metrics["extractive_citation_faithfulness"] = sum(case["citationFaithfulness"] for case in faithfulness_cases) / len(faithfulness_cases)
         metrics["faithfulness_evaluable_cases"] = len(faithfulness_cases)
+    if claim_faithfulness_cases:
+        claim_values = [value for case in claim_faithfulness_cases for value in case["claimFaithfulness"]]
+        metrics["extractive_claim_faithfulness"] = sum(claim_values) / len(claim_values)
+        metrics["claim_faithfulness_evaluable_claims"] = len(claim_values)
+    if answer_cases:
+        metrics["answer_correctness"] = sum(case["answerCorrectness"] for case in answer_cases) / len(answer_cases)
+    if citation_correctness_cases:
+        metrics["citation_correctness"] = sum(case["citationCorrectness"] for case in citation_correctness_cases) / len(citation_correctness_cases)
+    if citation_completeness_cases:
+        metrics["citation_completeness"] = sum(case["citationCompleteness"] for case in citation_completeness_cases) / len(citation_completeness_cases)
     difficulty_metrics = {}
     for difficulty in sorted({case["item"].get("difficulty", "standard") for case in positive_cases}):
         difficulty_cases = [case for case in positive_cases if case["item"].get("difficulty", "standard") == difficulty]
@@ -439,6 +557,7 @@ def format_rate(value: float) -> str:
 
 def build_metrics_payload(
     metrics: Dict[str, Any],
+    cases: List[Dict[str, Any]],
     dataset_path: Path,
     qrels_path: Path,
     split_manifest_path: Path,
@@ -470,6 +589,14 @@ def build_metrics_payload(
         "sourceRevision": source_revision,
         "runtimeConfig": runtime_config,
         "metrics": metrics,
+        "caseMetrics": [
+            {
+                "id": case["item"]["id"],
+                "category": case["item"]["category"],
+                "values": case_metric_values(case),
+            }
+            for case in cases
+        ],
     }
 
 
@@ -515,6 +642,15 @@ def render_report(cases: List[Dict[str, Any]], metrics: Dict[str, Any], api_url:
     if "extractive_citation_faithfulness" in metrics:
         lines.append(f"| Extractive citation faithfulness | {format_rate(metrics['extractive_citation_faithfulness'])} |")
         lines.append(f"| Faithfulness evaluable cases | {metrics['faithfulness_evaluable_cases']} |")
+    if "extractive_claim_faithfulness" in metrics:
+        lines.append(f"| Extractive claim faithfulness | {format_rate(metrics['extractive_claim_faithfulness'])} |")
+        lines.append(f"| Claim faithfulness evaluable claims | {metrics['claim_faithfulness_evaluable_claims']} |")
+    if "answer_correctness" in metrics:
+        lines.append(f"| Answer correctness (reference claims) | {format_rate(metrics['answer_correctness'])} |")
+    if "citation_correctness" in metrics:
+        lines.append(f"| Citation correctness | {format_rate(metrics['citation_correctness'])} |")
+    if "citation_completeness" in metrics:
+        lines.append(f"| Citation completeness | {format_rate(metrics['citation_completeness'])} |")
 
     lines.extend(["", "## Retrieval by Difficulty", "", "| Difficulty | Cases | Recall@1 | Recall@3 | Precision@3 | nDCG@5 | MRR@10 |", "| --- | ---: | ---: | ---: | ---: | ---: | ---: |"])
     for difficulty, values in metrics.get("difficulty_metrics", {}).items():
@@ -638,6 +774,7 @@ def main() -> int:
             json.dumps(
                 build_metrics_payload(
                     metrics,
+                    cases,
                     args.dataset,
                     args.qrels,
                     args.split_manifest,

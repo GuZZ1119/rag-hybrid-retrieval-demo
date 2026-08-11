@@ -2,21 +2,21 @@
 
 ## Accepted Retrieval Matrix
 
-The accepted baseline uses the held-out 44-case test split of the synthetic and anonymized challenge set. It uses a frozen 16-file corpus, SHA-checked fixture manifest, immutable chunk-level qrels, and 400-character chunks with 120-character overlap. The interactive demo and evaluation service use separate OpenSearch indexes and data volumes.
+The accepted baseline uses the held-out 47-case test split of the synthetic and anonymized challenge set. It uses a frozen 16-file corpus, SHA-checked fixture manifest, immutable chunk-level qrels, and 400-character chunks with 120-character overlap. The interactive demo and evaluation service use separate OpenSearch indexes and data volumes. Three added multi-evidence test cases require evidence across current and archived versioned policy documents or across two controlled documents.
 
 | Path | Recall@1 | Recall@3 | Recall@5 | Precision@3 | nDCG@5 | MRR@10 | Graph evidence |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| TEXT | 45.2% | 71.0% | 83.9% | 23.7% | 0.656 | 0.618 | 0.0% |
-| VECTOR | 51.6% | 87.1% | 93.5% | 29.0% | 0.755 | 0.702 | 0.0% |
-| HYBRID | 58.1% | 90.3% | 96.8% | 30.1% | 0.791 | 0.737 | 0.0% |
-| HYBRID+Graph | 58.1% | 90.3% | 96.8% | 30.1% | 0.791 | 0.737 | 50.0% |
+| TEXT | 50.0% | 73.5% | 85.3% | 26.5% | 0.668 | 0.652 | 0.0% |
+| VECTOR | 55.9% | 88.2% | 94.1% | 31.4% | 0.767 | 0.728 | 0.0% |
+| HYBRID | 61.8% | 91.2% | 97.1% | 32.4% | 0.793 | 0.760 | 0.0% |
+| HYBRID+Graph | 61.8% | 91.2% | 97.1% | 32.4% | 0.793 | 0.760 | 36.4% |
 
 Source reports: `eval/reports/challenge_matrix.md` and the per-path Markdown and JSON payloads in `eval/reports/`.
 
 ## What The Matrix Shows
 
-- HYBRID has the best test ranking result: `nDCG@5=0.791` and `MRR@10=0.737`, above VECTOR (`0.755`, `0.702`) and TEXT (`0.656`, `0.618`).
-- Graph expansion preserves HYBRID ranking in this held-out run while adding source-traceable graph evidence to 50% of relationship questions. It remains conditionally routed rather than enabled blindly.
+- HYBRID has the best test ranking result: `nDCG@5=0.793` and `MRR@10=0.760`, above VECTOR (`0.767`, `0.728`) and TEXT (`0.668`, `0.652`).
+- Graph expansion preserves HYBRID ranking in this held-out run while adding source-traceable graph evidence to 36.4% of relationship questions. The paired bootstrap comparison has zero observed ranking delta and `[0.000, 0.000]` 95% intervals for Recall@5, nDCG@5, and MRR@10, so this run provides no evidence of a ranking gain; graph value is limited to inspectable relation evidence.
 - The graph is useful when a question needs a relationship path or when BM25 and vector retrieval disagree. It is not a default replacement for direct retrieval.
 
 ## Known Failures
@@ -24,8 +24,8 @@ Source reports: `eval/reports/challenge_matrix.md` and the per-path Markdown and
 The denser corpus intentionally reveals three unfinished quality issues:
 
 1. **No-answer calibration:** none of 13 test negatives are rejected (`0.0%`). The current lexical threshold accepts policy-adjacent but unsupported questions. Tune this only on the dev split, then report the untouched test result.
-2. **Graph evidence coverage:** 4 of 8 held-out relationship questions return the expected shared entity path (`50.0%`). The router and graph candidate coverage are both `100.0%`, so the main gap remains entity-path precision rather than router availability.
-3. **Answer faithfulness scope:** the held-out HYBRID `/ask` run has chunk-level `Citation coverage=90.3%`. The extractive fallback reaches `Extractive citation faithfulness=100.0%` over 31 evaluable positive answers because it copies a cited preview. This does not validate an LLM paraphrase; semantic faithfulness needs an LLM judge or human review set.
+2. **Graph evidence coverage:** 4 of 11 held-out relationship questions return the expected shared entity path (`36.4%`). The router and graph candidate coverage are both `81.8%`, so the main gap remains entity-path precision rather than router availability.
+3. **Answer completeness:** the held-out HYBRID `/ask` run has `Answer correctness=54.4%`, `Citation correctness=32.4%`, and `Citation completeness` will expose any uncited required source in a multi-evidence claim. The extractive fallback's `Extractive claim faithfulness=100.0%` only means each copied clause appears in a cited preview; it does not validate an LLM paraphrase.
 
 These figures are not production claims. The corpus is synthetic; the value of this project is that the limitations are measurable, reproducible, and protected by a quality gate. Current reports also include `Recall@1`, `Precision@3/5`, `nDCG@3/5`, and extractive citation faithfulness. The last metric is deliberately limited to the extractive fallback; an LLM answer needs a judge model or human review before claiming semantic faithfulness.
 
