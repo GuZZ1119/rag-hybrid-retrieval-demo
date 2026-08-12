@@ -379,7 +379,17 @@ def extractive_claim_support(response: Dict[str, Any]) -> Optional[List[bool]]:
     answer = str(response.get("answer", ""))
     if ":" in answer:
         answer = answer.split(":", 1)[1]
-    claims = [segment.strip() for segment in re.split(r"[。！？!?]+", answer) if len(normalize(segment)) >= 4]
+    evidence_blocks = [
+        re.sub(r"^\[\d+\]\s*", "", block.strip())
+        for block in re.split(r"(?=\[\d+\]\s*)", answer)
+        if block.strip()
+    ]
+    claims = [
+        segment.strip()
+        for block in evidence_blocks
+        for segment in re.split(r"[。！？!?]+", block)
+        if len(normalize(segment)) >= 4
+    ]
     citations = response.get("citations")
     previews = [normalize(str(citation.get("contentPreview", ""))) for citation in citations or []]
     if not claims or not previews:

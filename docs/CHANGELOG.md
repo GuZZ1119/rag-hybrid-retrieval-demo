@@ -2,6 +2,13 @@
 
 This file records project delivery commits with the date and the completed work. Add a new entry whenever a project change is pushed.
 
+## 2026-08-12
+
+- Replaced the extractive fallback's first-chunk-only output with compact multi-evidence composition. The same selected evidence drives answer text and citations; multi-hop questions can cite two sources, and version-conflict answers put current policy before archived context.
+- Selected `NO_ANSWER_MIN_TEXT_SCORE=7.0`, a two-citation cap, and a 20-candidate answer-evidence depth on the frozen dev split. The public retrieval top-k and retrieval evaluation depth remain unchanged.
+- Added dev and held-out answer-quality reports plus paired bootstrap 95% confidence intervals. Held-out Answer Correctness improved from `54.4%` to `85.3%`, Citation Correctness from `32.4%` to `51.5%`, Citation Completeness from `89.7%` to `95.6%`, and negative no-answer rate from `0.0%` to `53.8%`; Recall@5, nDCG@5, and MRR@10 were unchanged and the quality gate passed.
+- Made extractive claim-faithfulness parsing citation-block-aware and changed paired bootstrap to report shared eligible samples for answer metrics.
+
 ## 2026-08-11
 
 - Added four labelled multi-evidence cases across dev and held-out test: current-versus-archived procurement policy conflicts, external access plus customer-data controls, and P1 emergency-change plus retention evidence.

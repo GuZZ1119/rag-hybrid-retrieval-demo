@@ -226,11 +226,53 @@ def test_grounded_answer_composer(kb):
 
     fallback = kb.compose_grounded_answer("What is required?", retrieval)
     assert fallback["answerMode"] == "EXTRACTIVE"
-    assert "policy.txt" in fallback["answer"]
+    assert fallback["answer"].startswith("[1] Procurement requires")
+    assert fallback["answerReason"].endswith("compact_supporting_evidence")
 
     no_answer = kb.compose_grounded_answer("Unknown", {"decision": "NO_ANSWER", "results": []}, generator)
     assert no_answer["answerMode"] == "NO_ANSWER"
     assert not generator.calls[1:]
+
+
+def test_answer_evidence_selection(kb):
+    current = {
+        "rank": 8,
+        "filename": "procurement_policy_2026.txt",
+        "chunkId": "current:0",
+        "textScore": 10.0,
+        "fusionScore": 0.02,
+        "content": "2026 年政策已经生效，当前采购必须关联合同。",
+        "contentPreview": "2026 年政策已经生效，当前采购必须关联合同。",
+    }
+    archived = {
+        "rank": 1,
+        "filename": "procurement_archive_2024.txt",
+        "chunkId": "archive:0",
+        "textScore": 30.0,
+        "fusionScore": 0.04,
+        "content": "2024 年历史归档，旧规则已废止。",
+        "contentPreview": "2024 年历史归档，旧规则已废止。",
+    }
+    selected, strategy = kb.select_answer_evidence("历史归档旧规则现在还能用吗？", [archived, current])
+    assert strategy == "version_conflict_current_first"
+    assert [result["chunkId"] for result in selected] == ["current:0", "archive:0"]
+
+    selected, strategy = kb.select_answer_evidence("当前采购需要什么？", [archived, current])
+    assert strategy == "compact_supporting_evidence"
+    assert [result["chunkId"] for result in selected] == ["current:0"]
+
+    multi = {
+        "rank": 2,
+        "filename": "retention_policy.txt",
+        "chunkId": "retention:0",
+        "textScore": 9.0,
+        "fusionScore": 0.01,
+        "content": "复盘记录至少保留五年。",
+        "contentPreview": "复盘记录至少保留五年。",
+    }
+    selected, strategy = kb.select_answer_evidence("变更记录和复盘至少保留多久？", [current, multi])
+    assert strategy == "multi_evidence"
+    assert [result["chunkId"] for result in selected] == ["current:0", "retention:0"]
 
 
 def test_feedback_helpers(kb):
@@ -303,6 +345,7 @@ async def main():
         test_hybrid_fusion(kb)
         test_answer_decision(kb)
         test_grounded_answer_composer(kb)
+        test_answer_evidence_selection(kb)
         test_feedback_helpers(kb)
         await test_upload_and_config(kb)
     finally:

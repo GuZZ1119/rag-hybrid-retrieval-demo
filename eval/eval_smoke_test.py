@@ -91,6 +91,16 @@ def main() -> None:
     assert ask_metrics["citation_correctness"] == 1.0
     assert ask_metrics["citation_completeness"] == 1.0
 
+    multi_evidence = {
+        "answerMode": "EXTRACTIVE",
+        "answer": "[1] Procurement requires an approved request.\n\n[2] Finance retains the approval record.",
+        "citations": [
+            {"contentPreview": "Procurement requires an approved request."},
+            {"contentPreview": "Finance retains the approval record."},
+        ],
+    }
+    assert evaluator.extractive_claim_support(multi_evidence) == [True, True]
+
     multihop = next(item for item in items if item["id"] == "multihop-p1-change-retention")
     multihop_claims = evaluator.reference_claims(multihop, qrels[multihop["id"]])
     assert len(multihop_claims) == 2

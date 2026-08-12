@@ -84,7 +84,8 @@ GRAPH_RRF_WEIGHT = read_non_negative_float_env("GRAPH_RRF_WEIGHT", 0.1)
 NO_ANSWER_MIN_TEXT_SCORE = read_non_negative_float_env("NO_ANSWER_MIN_TEXT_SCORE", 4.0)
 GRAPH_SEED_LIMIT = read_positive_int_env("GRAPH_SEED_LIMIT", 3)
 GRAPH_MAX_PATHS = read_positive_int_env("GRAPH_MAX_PATHS", 8)
-ASK_MAX_CITATIONS = read_positive_int_env("ASK_MAX_CITATIONS", 3)
+ASK_MAX_CITATIONS = read_positive_int_env("ASK_MAX_CITATIONS", 2)
+ANSWER_EVIDENCE_CANDIDATE_K = read_positive_int_env("ANSWER_EVIDENCE_CANDIDATE_K", 20)
 ASK_CONTEXT_CHAR_LIMIT = read_positive_int_env("ASK_CONTEXT_CHAR_LIMIT", 2400)
 LLM_API_URL = os.getenv("LLM_API_URL", "").strip()
 LLM_API_KEY = os.getenv("LLM_API_KEY", "").strip()
@@ -96,6 +97,10 @@ GRAPH_ENTITY_MAX_CHARS = 6
 GRAPH_ENTITY_STOP_TERMS = {"公司", "员工", "部门", "负责", "需要", "可以", "应当", "必须"}
 GRAPH_ENTITY_PREFERRED_SUFFIXES = ("申请", "审批", "报告", "负责人", "指挥官", "认证", "数据", "设备", "合同", "发票", "预算", "费用", "票据", "行程单")
 RELATION_QUERY_CUES = ("关联", "关系", "流程", "负责", "谁", "审批", "原因", "为什么")
+ARCHIVED_EVIDENCE_MARKERS = ("归档", "历史", "旧版", "旧规则", "退役", "已废止", "已失效", "过往")
+CURRENT_EVIDENCE_MARKERS = ("现行", "当前", "正式", "生效", "2026")
+VERSION_CONFLICT_QUERY_MARKERS = ("归档", "历史", "旧", "现在", "当前", "现行", "还能", "废止")
+MULTI_EVIDENCE_QUERY_MARKERS = ("以及", "分别", "同时", "至少保留", "哪些", "并且")
 
 app = FastAPI(title="KB Demo API (Sanitized)", version="0.1.0")
 embedding_provider: Optional[EmbeddingProvider] = None
@@ -771,6 +776,79 @@ def decide_answer(mode: str, results: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def evidence_text(result: Dict[str, Any]) -> str:
+    return " ".join([
+        str(result.get("filename", "")),
+        str(result.get("content", "")),
+        str(result.get("contentPreview", "")),
+    ]).lower()
+
+
+def is_archived_evidence(result: Dict[str, Any]) -> bool:
+    return any(marker in evidence_text(result) for marker in ARCHIVED_EVIDENCE_MARKERS)
+
+
+def has_current_marker(result: Dict[str, Any]) -> bool:
+    return any(marker in evidence_text(result) for marker in CURRENT_EVIDENCE_MARKERS)
+
+
+def is_version_conflict_question(question: str) -> bool:
+    return sum(marker in question.lower() for marker in VERSION_CONFLICT_QUERY_MARKERS) >= 2
+
+
+def needs_multiple_evidence(question: str) -> bool:
+    return any(marker in question.lower() for marker in MULTI_EVIDENCE_QUERY_MARKERS)
+
+
+def evidence_selection_score(result: Dict[str, Any], prefer_current: bool) -> tuple:
+    """Prefer current, high-confidence evidence without using evaluation labels."""
+    return (
+        int(prefer_current and has_current_marker(result)),
+        float(result.get("textScore") or 0.0),
+        float(result.get("fusionScore") or 0.0),
+        -int(result.get("rank") or 0),
+    )
+
+
+def select_answer_evidence(question: str, results: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], str]:
+    """Select the small evidence set used both for citations and extractive fallback text.
+
+    Archived documents are useful to explain a conflict, but never lead an answer
+    when a current policy candidate is available. This is deliberately based on
+    document status markers and retrieval scores, not on golden-set annotations.
+    """
+    unique_results = []
+    seen_chunk_ids = set()
+    for result in results:
+        chunk_id = result.get("chunkId")
+        if chunk_id and chunk_id not in seen_chunk_ids:
+            unique_results.append(result)
+            seen_chunk_ids.add(chunk_id)
+
+    active = [result for result in unique_results if not is_archived_evidence(result)]
+    archived = [result for result in unique_results if is_archived_evidence(result)]
+    if is_version_conflict_question(question) and active and archived:
+        current = max(active, key=lambda result: evidence_selection_score(result, prefer_current=True))
+        history = max(archived, key=lambda result: evidence_selection_score(result, prefer_current=False))
+        return [current, history], "version_conflict_current_first"
+
+    candidates = active or unique_results
+    # A compact pair preserves an alternate supporting source for ordinary
+    # questions too; multi-hop questions use the same cap but need both claims.
+    limit = ASK_MAX_CITATIONS
+    selected = []
+    seen_filenames = set()
+    for result in candidates:
+        filename = result.get("filename")
+        if filename in seen_filenames:
+            continue
+        selected.append(result)
+        seen_filenames.add(filename)
+        if len(selected) >= limit:
+            break
+    return selected, "multi_evidence" if needs_multiple_evidence(question) else "compact_supporting_evidence"
+
+
 def build_citations(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     citations = []
     seen_chunk_ids = set()
@@ -819,8 +897,9 @@ def compose_grounded_answer(
             "citations": [],
         }
 
-    results = retrieval.get("results", [])
-    citations = build_citations(results)
+    results = retrieval.get("answerEvidenceCandidates", retrieval.get("results", []))
+    evidence, strategy = select_answer_evidence(question, results)
+    citations = build_citations(evidence)
     if not citations:
         return {
             "answer": "No grounded answer is available in the knowledge base.",
@@ -841,11 +920,13 @@ def compose_grounded_answer(
         except RuntimeError:
             pass
 
-    first_citation = citations[0]
     return {
-        "answer": f"Evidence from {first_citation['filename']}: {first_citation['contentPreview']}",
+        "answer": "\n\n".join(
+            f"[{citation['citationId']}] {citation['contentPreview']}"
+            for citation in citations
+        ),
         "answerMode": "EXTRACTIVE",
-        "answerReason": "llm_not_configured_or_unavailable",
+        "answerReason": f"llm_not_configured_or_unavailable:{strategy}",
         "citations": citations,
     }
 
@@ -879,6 +960,8 @@ def runtime_config():
         "hybridRrfK": HYBRID_RRF_K,
         "graphRrfWeight": GRAPH_RRF_WEIGHT,
         "noAnswerMinTextScore": NO_ANSWER_MIN_TEXT_SCORE,
+        "askMaxCitations": ASK_MAX_CITATIONS,
+        "answerEvidenceCandidateK": ANSWER_EVIDENCE_CANDIDATE_K,
         "graphSeedLimit": GRAPH_SEED_LIMIT,
         "graphMaxPaths": GRAPH_MAX_PATHS,
     }
@@ -1367,8 +1450,16 @@ def ask(body: Dict[str, Any]):
     if not isinstance(graph_enabled, bool):
         raise HTTPException(status_code=400, detail="graphEnabled must be a boolean")
 
-    retrieval = search(q=question.strip(), topK=requested_top_k, mode="HYBRID", graphEnabled=graph_enabled)
+    evidence_top_k = max(requested_top_k, ANSWER_EVIDENCE_CANDIDATE_K)
+    retrieval = search(q=question.strip(), topK=evidence_top_k, mode="HYBRID", graphEnabled=graph_enabled)
+    retrieval["answerEvidenceCandidates"] = retrieval.get("results", [])
+    # Answer construction can inspect a deeper candidate set, while the public
+    # retrieval response and retrieval metrics retain the requested top-k.
+    retrieval["results"] = retrieval.get("results", [])[:requested_top_k]
+    retrieval["retrievedCount"] = len(retrieval["results"])
+    retrieval["count"] = len(retrieval["results"]) if retrieval.get("decision") == "ANSWER" else 0
     answer = compose_grounded_answer(question.strip(), retrieval, get_answer_generator())
+    retrieval.pop("answerEvidenceCandidates", None)
     response = {**retrieval, **answer, "requestId": str(uuid.uuid4())}
     record_ask_event(response["requestId"], question.strip(), response)
     return response

@@ -30,9 +30,16 @@ def main() -> None:
     candidate = payload([0.3, 0.5, 0.7, 0.9])
     result = paired_bootstrap.paired_bootstrap(baseline, candidate, "ndcg_at_5", samples=200, seed=3)
     assert result["pairedCases"] == 4
+    assert result["baselineEligibleCases"] == 4
+    assert result["candidateEligibleCases"] == 4
     assert abs(result["observedDelta"] - 0.1) < 1e-12
     assert all(abs(value - 0.1) < 1e-12 for value in result["ci95"])
     assert paired_bootstrap.compare_metadata(baseline, candidate) == []
+    candidate["caseMetrics"].pop()
+    partial = paired_bootstrap.paired_bootstrap(baseline, candidate, "ndcg_at_5", samples=200, seed=3)
+    assert partial["pairedCases"] == 3
+    assert partial["baselineEligibleCases"] == 4
+    assert partial["candidateEligibleCases"] == 3
     candidate["split"] = "dev"
     assert "split" in paired_bootstrap.compare_metadata(baseline, candidate)
 

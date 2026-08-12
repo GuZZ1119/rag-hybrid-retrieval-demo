@@ -6,7 +6,7 @@
 
 The benchmark is deliberately separated from the interactive demo environment.
 
-- `split_manifest.json` freezes 20 development cases and 44 held-out test cases. Tune chunking, retrieval weights, graph routing, and no-answer thresholds only on `dev`; release reports and quality gates default to `test`.
+- `split_manifest.json` freezes 21 development cases and 47 held-out test cases. Tune chunking, retrieval weights, graph routing, answer evidence selection, and no-answer thresholds only on `dev`; release reports and quality gates default to `test`.
 - `corpus_manifest.json` freezes every fixture filename, SHA-256, deterministic file ID, and the 400/120 chunking contract.
 - `qrels.jsonl` maps every positive query to immutable `fileId:chunkIndex` relevance labels. Changing the corpus or chunking requires a new manifest and new qrels, rather than silently changing the definition of a hit.
 - Docker service `kb-eval-api` uses its own `kb-eval-*` OpenSearch indexes and `kb-eval-data` volume. The evaluator rejects any uploaded file outside the frozen manifest.
@@ -64,7 +64,13 @@ The default gate allows small documented movement (`Recall@5`, `Precision@3`, `n
 
 The accepted test matrix is stored in `reports/challenge_matrix.md`. Its JSON payload must contain matching dataset, qrels, split-manifest, corpus-manifest, runtime configuration, and source-revision provenance before it is compared by the quality gate.
 
-`run_experiment_matrix.py` also writes `reports/challenge_hybrid_graph_bootstrap.md`. It reports a paired, non-parametric bootstrap 95% confidence interval for HYBRID+Graph minus HYBRID on the same test cases. A confidence interval spanning zero is not evidence of a reliable graph ranking improvement.
+`run_experiment_matrix.py` also writes `reports/challenge_hybrid_graph_bootstrap.md`. It reports a paired, non-parametric bootstrap 95% confidence interval for HYBRID+Graph minus HYBRID on the same test cases. A confidence interval spanning zero is not evidence of a reliable graph ranking improvement. Answer-quality comparisons use shared eligible cases and record the baseline/candidate eligibility counts, since a correct `NO_ANSWER` has no answer or citation to score.
+
+## Answer Evidence Tuning
+
+The runnable extractive fallback selects a compact, source-backed evidence set rather than copying only the first retrieved chunk. It returns at most two citations; version-conflict questions place a current policy ahead of an archived explanation. Answer construction may inspect 20 candidates, but the public retrieval result and retrieval metrics remain at the requested `topK`.
+
+The current `NO_ANSWER_MIN_TEXT_SCORE=7.0` and two-citation cap were selected on `dev` only. The recorded `dev_answer_baseline.*`, `dev_answer_tuned.*`, and `dev_answer_tuned_bootstrap.*` artifacts make that selection inspectable. `answer_evidence_test.*` and `answer_evidence_test_bootstrap.*` are the final held-out test run.
 
 ## Run
 

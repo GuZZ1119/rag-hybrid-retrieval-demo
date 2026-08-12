@@ -64,12 +64,11 @@ def paired_bootstrap(
 ) -> Dict[str, Any]:
     baseline_values = case_values(baseline, metric)
     candidate_values = case_values(candidate, metric)
-    if set(baseline_values) != set(candidate_values):
-        raise ValueError(f"{metric}: paired case IDs differ between runs")
-    if not baseline_values:
+    paired_ids = sorted(set(baseline_values) & set(candidate_values))
+    if not paired_ids:
         raise ValueError(f"{metric}: no paired case values are available")
 
-    differences = [candidate_values[case_id] - baseline_values[case_id] for case_id in sorted(baseline_values)]
+    differences = [candidate_values[case_id] - baseline_values[case_id] for case_id in paired_ids]
     random_generator = random.Random(seed)
     bootstrap_means = [
         fmean(random_generator.choice(differences) for _ in differences)
@@ -78,8 +77,10 @@ def paired_bootstrap(
     return {
         "metric": metric,
         "pairedCases": len(differences),
-        "baselineMean": fmean(baseline_values.values()),
-        "candidateMean": fmean(candidate_values.values()),
+        "baselineEligibleCases": len(baseline_values),
+        "candidateEligibleCases": len(candidate_values),
+        "baselineMean": fmean(baseline_values[case_id] for case_id in paired_ids),
+        "candidateMean": fmean(candidate_values[case_id] for case_id in paired_ids),
         "observedDelta": fmean(differences),
         "ci95": [percentile(bootstrap_means, 0.025), percentile(bootstrap_means, 0.975)],
         "probabilityCandidateGreater": sum(value > 0 for value in bootstrap_means) / samples,
@@ -94,15 +95,15 @@ def render_report(results: List[Dict[str, Any]], baseline: Path, candidate: Path
         "",
         f"- Baseline: `{baseline.name}`",
         f"- Candidate: `{candidate.name}`",
-        "- Method: paired non-parametric bootstrap over the same eligible cases; 95% percentile confidence interval for candidate minus baseline.",
+        "- Method: paired non-parametric bootstrap over shared eligible cases; 95% percentile confidence interval for candidate minus baseline. Eligibility counts are reported because answer metrics can be unavailable after a no-answer decision.",
         "",
-        "| Metric | Paired cases | Baseline | Candidate | Delta | 95% CI | P(delta > 0) |",
+        "| Metric | Paired / baseline / candidate eligible | Baseline | Candidate | Delta | 95% CI | P(delta > 0) |",
         "| --- | ---: | ---: | ---: | ---: | --- | ---: |",
     ]
     for result in results:
         low, high = result["ci95"]
         lines.append(
-            f"| {result['metric']} | {result['pairedCases']} | {result['baselineMean']:.3f} | "
+            f"| {result['metric']} | {result['pairedCases']} / {result['baselineEligibleCases']} / {result['candidateEligibleCases']} | {result['baselineMean']:.3f} | "
             f"{result['candidateMean']:.3f} | {result['observedDelta']:+.3f} | "
             f"[{low:+.3f}, {high:+.3f}] | {result['probabilityCandidateGreater']:.3f} |"
         )
