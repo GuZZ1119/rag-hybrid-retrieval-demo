@@ -1,507 +1,213 @@
-RAG Hybrid Retrieval Demo (Sanitized)
-面向 RAG 的混合检索 Demo（脱敏版）
+# Evidence-First Graph-Hybrid RAG
 
-A portfolio-friendly, evidence-first Graph-Hybrid RAG demo for enterprise-file lookup.
-This repository demonstrates a document-to-answer pipeline with real BM25, vector k-NN, hybrid RRF, conditional source-grounded graph evidence, citations, evaluation, and regression gates.
+<p align="center">
+  A reproducible RAG portfolio project for enterprise-file lookup.
+</p>
 
-这是一个面向 RAG 场景的混合检索作品集 Demo。
-本仓库展示 文档 → 解析 → 分块 → 索引 → 检索（高亮） 的完整闭环，
-支持全文索引、真实向量检索、混合检索、条件图谱证据与可回测质量门禁，目标是做到干净、可复现、任意新环境一键跑通。
+<p align="center">
+  <a href="https://github.com/GuZZ1119/rag-hybrid-retrieval-demo/actions/workflows/smoke.yml"><img src="https://github.com/GuZZ1119/rag-hybrid-retrieval-demo/actions/workflows/smoke.yml/badge.svg" alt="Smoke tests"></a>
+  <img src="https://img.shields.io/badge/retrieval-BM25%20%2B%20Vector%20%2B%20RRF-0f766e" alt="Retrieval">
+  <img src="https://img.shields.io/badge/graph-source--grounded-0f766e" alt="Evidence graph">
+  <img src="https://img.shields.io/badge/evaluation-frozen%20dev%20%2F%20test-2563eb" alt="Evaluation">
+  <img src="https://img.shields.io/badge/status-portfolio%20v1.0-2563eb" alt="Status">
+</p>
 
-✅ This repository is sanitized / 本仓库已完成脱敏
+<p align="center">
+  <a href="#why-this-project">Why this project</a> &bull;
+  <a href="#architecture">Architecture</a> &bull;
+  <a href="#measured-results">Results</a> &bull;
+  <a href="#quick-start">Quick start</a> &bull;
+  <a href="docs/ARCHITECTURE.md">Design notes</a> &bull;
+  <a href="docs/RESULTS.md">Full analysis</a>
+</p>
 
-No private tokens / IPs / passwords / 不包含任何私密 token / IP / 密码
+> **Scenario:** An enterprise agent receives a keyword or question, searches uploaded policies, manuals, FAQs, or operating guides, and returns a source-grounded answer. The project is sanitized: no private documents, credentials, or internal business code are included.
 
-No internal business code / 不包含任何公司内部业务代码
+## Why This Project
 
-No environment-specific dependencies / 不依赖特定机器/特定环境路径
+Most small RAG demos stop at “a vector search returned text.” This project treats RAG as an evidence system: exact policy wording, semantic similarity, cross-file relationships, document-version conflicts, citations, abstention, and measured regression are all part of the same loop.
 
-## Portfolio Snapshot
+| Goal | Implementation |
+| --- | --- |
+| Exact enterprise terms and identifiers | OpenSearch BM25 chunk retrieval |
+| Paraphrases and semantic lookup | Local multilingual embedding model with OpenSearch k-NN |
+| Cross-file logic | Conditional, source-grounded evidence graph |
+| Stable hybrid ranking | Reciprocal Rank Fusion (RRF), not raw-score mixing |
+| Answer safety | Evidence gate, `NO_ANSWER`, compact citation-first answers |
+| Version conflicts | Current policy is selected before archived context |
+| Continuous improvement | Frozen corpus and qrels, dev/test split, bootstrap CI, quality gate |
 
-- 64 labelled challenge queries across keyword, paraphrase, relationship, version-conflict, distractor, multi-condition, and negative scenarios.
-- `TEXT`, `VECTOR`, `HYBRID`, and `HYBRID+Graph` experiment matrix with JSON configuration provenance and a regression gate.
-- Citation-first `/ask`, `NO_ANSWER`, privacy-minimized feedback, and a review queue for controlled improvement.
+## Architecture
 
-Read [Architecture](docs/ARCHITECTURE.md), [Challenge Results](docs/RESULTS.md), and the [three-minute demo script](docs/DEMO_SCRIPT.md).
+```mermaid
+flowchart LR
+    F["Enterprise files\nPolicies / manuals / FAQs"] --> U["Upload, extract, clean, chunk"]
+    U --> B[("BM25 chunk index")]
+    U --> V[("Vector k-NN index")]
+    U --> G[("Evidence graph\nDocument - Chunk - Entity")]
 
-🚀 What This Demo Shows / 本 Demo 展示内容
-Core Pipeline / 核心流程
+    Q["User keyword or question"] --> T["BM25 retrieval"]
+    Q --> E["Query embedding"] --> K["Vector retrieval"]
+    T --> R["RRF fusion"]
+    K --> R
+    R --> X{"Relationship cue or\ncandidate disagreement?"}
+    X -->|"yes"| P["Expand source-grounded entity paths\nand add low-weight graph candidates"]
+    G --> P --> D
+    X -->|"no"| D["Evidence gate"]
+    R --> D
+    D -->|"weak evidence"| N["NO_ANSWER"]
+    D -->|"grounded"| S["Select answer evidence\ncurrent policy first"]
+    S --> A["Citation-first answer\nextractive or grounded LLM"]
 
-File upload / 文件上传
-
-Text extraction and cleaning / 文本解析与清洗
-
-Chunking with overlap / 分块（含 overlap）
-
-Full-text indexing / 全文索引
-
-Hybrid retrieval design / 混合检索设计
-
-Search with highlighted results / 支持高亮检索结果
-
-Safe index rebuild and reconstruction / 支持安全索引重建与索引重构
-
-🧩 Indexing Design / 索引设计思想
-
-Chunk-level indexing / 以 chunk（分块）为粒度建索引
-
-Stable chunk IDs for safe rebuild / chunk ID 稳定，支持安全重建
-
-Clear separation between source files and index data / 源文件与索引数据清晰隔离
-
-Retrieval-oriented structure for future RAG workflows / 面向 RAG 工作流的检索结构设计
-
-Index Modes / 索引模式
-
-TEXT / 全文检索
-
-VECTOR / 向量检索
-
-HYBRID / 混合检索
-
-This demo is designed around hybrid indexing.
-It supports full-text retrieval directly and is structured to accommodate vector-based retrieval and hybrid retrieval strategies.
-
-本 Demo 以混合索引设计为核心。
-当前可直接展示全文检索能力，同时在结构上支持向量检索扩展与混合检索策略。
-
-🧰 Requirements / 运行环境
-
-Docker Desktop
-
-Docker Compose v2
-
-本地无需安装 Java / Python / 数据库
-不需要任何既有环境或历史依赖
-
-
-⚡ Quickstart (One-Command Demo) / 一键启动 Demo
-1) Start all services / 启动服务
-
-Step / 步骤：
-进入 demo 目录，然后启动容器服务。
-
-Command / 命令：
+    A --> L["Privacy-minimized telemetry"]
+    L --> H["Human review + Golden Set"]
+    H --> M["Dev tuning -> held-out test\nbootstrap CI + quality gate"]
 ```
-cd demo
+
+**Evidence responsibilities**
+
+- **BM25** protects exact policy terms, codes, and formal wording.
+- **Vector retrieval** handles paraphrases that do not share the same wording.
+- **Evidence graph** is only used for relationship questions or BM25/vector disagreement. Every graph path resolves back to original chunks; graph edges never generate facts by themselves.
+- **Answer evidence selection** returns at most two sources. For version conflicts it answers from the current controlled policy, then explains the archived evidence as historical context.
+
+## Measured Results
+
+The evaluation corpus is synthetic and anonymized, but the protocol is frozen and reproducible: **16 documents**, **68 labelled questions**, **21 dev / 47 held-out test** cases, deterministic chunk IDs, SHA-checked corpus manifest, and chunk-level qrels.
+
+### Retrieval Comparison: Held-Out Test
+
+| Path | Recall@5 | nDCG@5 | MRR@10 | Graph evidence coverage |
+| --- | ---: | ---: | ---: | ---: |
+| TEXT | 85.3% | 0.668 | 0.652 | 0.0% |
+| VECTOR | 94.1% | 0.767 | 0.728 | 0.0% |
+| HYBRID | **97.1%** | **0.793** | **0.760** | 0.0% |
+| HYBRID+Graph | **97.1%** | **0.793** | **0.760** | 36.4% |
+
+Graph expansion adds inspectable relationship evidence but did not improve ranking in this test set: its HYBRID comparison has a `0.000` delta and `[0.000, 0.000]` paired-bootstrap 95% intervals for Recall@5, nDCG@5, and MRR@10. That is reported as a limitation, not presented as a ranking gain.
+
+### Answer-Evidence Improvement: Held-Out Test
+
+The answer-selection configuration was chosen only on the dev split, then evaluated once on held-out test.
+
+| Metric | Earlier baseline | Current result | Paired delta, 95% CI |
+| --- | ---: | ---: | --- |
+| Recall@5 | 97.1% | 97.1% | +0.000 [0.000, 0.000] |
+| nDCG@5 | 0.793 | 0.793 | +0.000 [0.000, 0.000] |
+| MRR@10 | 0.760 | 0.760 | +0.000 [0.000, 0.000] |
+| Answer correctness | 54.4% | **85.3%** | +0.309 [+0.147, +0.485] |
+| Citation correctness | 32.4% | **51.5%** | +0.191 [+0.162, +0.225] |
+| Citation completeness | 89.7% | **95.6%** | +0.059 [+0.000, +0.147] |
+| Negative no-answer rate | 0.0% | **53.8%** | +0.538 [+0.231, +0.769] |
+
+`Answer correctness` is a deterministic reference-claim term metric, and extractive faithfulness verifies copied source evidence. They are not claims of production LLM semantic faithfulness. The complete method, failures, and report artifacts are in [docs/RESULTS.md](docs/RESULTS.md) and [eval/README.md](eval/README.md).
+
+## What Is Included
+
+- `POST /upload`: validated `.txt`, `.md`, `.pdf`, and `.docx` ingestion.
+- `POST /index/rebuild`: deterministic text, vector, and graph index rebuild from uploaded files.
+- `GET /search`: `TEXT`, `VECTOR`, and `HYBRID` paths with rank and score provenance.
+- `POST /ask`: HYBRID retrieval, evidence gating, conditional graph expansion, answer evidence selection, citations, and safe fallback without an external LLM.
+- `POST /feedback` and review queue: privacy-minimized feedback intake for manual Golden Set review.
+- Isolated `kb-eval-api`: evaluation indexes and data volume cannot pollute the interactive demo.
+- GitHub Actions smoke tests for API helpers, dataset validation, metrics, isolation, bootstrap, and gate logic.
+
+## Quick Start
+
+**Requirements:** Docker Desktop and Docker Compose v2. No local Python, Java, or database installation is required.
+
+```bash
+git clone https://github.com/GuZZ1119/rag-hybrid-retrieval-demo.git
+cd rag-hybrid-retrieval-demo/demo
 docker compose up -d --build
+curl http://localhost:8080/health
 ```
-This will start / 将启动以下服务：
 
-OpenSearch: http://localhost:9200
+Services:
 
-OpenSearch Dashboards: http://localhost:5601
+| Service | Address | Purpose |
+| --- | --- | --- |
+| Demo API | `http://localhost:8080` | Upload, search, ask, feedback |
+| Evaluation API | `http://localhost:8081` | Isolated frozen-corpus evaluation |
+| OpenSearch | `http://localhost:9200` | Text, vector, and graph indexes |
+| OpenSearch Dashboards | `http://localhost:5601` | Index inspection |
 
-Demo KB API: http://localhost:8080
+Upload, index, then query:
 
-Wait about 20–30 seconds for OpenSearch to be ready.
-等待约 20–30 秒，OpenSearch 初始化完成即可。
-
-
-2) Upload a document / 上传文档
-
-Command / 命令：
-```
+```bash
 curl -F "file=@demo.txt" http://localhost:8080/upload
-```
-Response example / 返回示例：
-```
-{
-"fileId": "69742593-d8a8-450a-a933-78996802aa9d",
-"filename": "demo.txt"
-}
-```
+curl -X POST http://localhost:8080/index/rebuild
 
-3) Build / rebuild the index / 构建（或重建）索引
+curl "http://localhost:8080/search?q=采购审批需要什么材料&mode=HYBRID"
 
-Command / 命令：
-```
-curl -X POST http://localhost:8080/reindex
-```
-This step will / 此步骤会：
-
-Parse uploaded files / 解析已上传文件
-
-Clean and split text into chunks / 清洗文本并进行分块（含 overlap）
-
-Bulk upsert chunks into OpenSearch / 批量 upsert 写入 OpenSearch
-
-Refresh index for immediate search / 刷新索引以便立刻可搜
-
-
-4) Search with highlight / 高亮搜索
-
-Command / 命令：
-```
-curl "http://localhost:8080/search?q=水"
-```
-
-Example response / 返回示例：
-```
-{
-"count": 2,
-"results": [
-{
-"filename": "demo.txt",
-"chunkIndex": 0,
-"highlight": "这里有<em>水</em>。OpenSearch 高亮测试。"
-}
-]
-}
-```
-5) Index Mode Switching / 索引模式切换
-
-This demo now supports index mode configuration to better reflect real RAG retrieval systems:
-
-TEXT: full-text retrieval via OpenSearch (BM25-style)
-
-VECTOR: real OpenSearch k-NN vector retrieval
-
-HYBRID: combined workflow (TEXT + VECTOR)
-
-本 Demo 现已支持索引模式配置，更贴近真实 RAG 检索系统：
-
-TEXT：OpenSearch 全文检索（BM25 风格）
-
-VECTOR：真实 OpenSearch k-NN 向量检索
-
-HYBRID：混合流程（TEXT + VECTOR 组合）
-
-API:
-
-GET /index/config — view current index config / 查看当前索引配置
-
-POST /index/config — update indexMode/config / 更新索引模式与配置
-
-Example / 示例（PowerShell 推荐写法）：
-
-Set mode to HYBRID / 设置为 HYBRID：
-```
-$body = @{ indexMode = "HYBRID" } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri "http://localhost:8080/index/config
-" -ContentType "application/json" -Body $body
-```
-View config / 查看配置：
-```
-curl.exe "http://localhost:8080/index/config
-```
-6) Index Rebuild & Reconstruction Dispatcher / 索引重建与重构分发
-
-A unified rebuild endpoint is provided to reconstruct index state deterministically from source documents.
-
-TEXT: rebuild OpenSearch index entries
-
-VECTOR: rebuild embeddings and the OpenSearch k-NN index
-
-HYBRID: execute both steps
-
-提供统一的“索引重构”入口，可基于源文档稳定重建索引状态。
-
-TEXT：重建 OpenSearch 文本索引
-
-VECTOR：重建 embedding 与 OpenSearch k-NN 索引
-
-HYBRID：两者都执行
-
-API:
-
-POST /index/rebuild — rebuild/reconstruct by current indexMode / 按当前 indexMode 执行重建/重构
-
-Optional: ?fileId=xxx to rebuild a single file / 可选参数 fileId，仅重构单个文件
-
-Examples / 示例：
-
-Rebuild by mode / 按模式重构：
-```
-curl.exe -X POST "http://localhost:8080/index/rebuild
-```
-
-Rebuild a single file / 重构单个文件：
-```
-curl.exe -X POST "http://localhost:8080/index/rebuild?fileId=YOUR_FILE_ID
-```
-
-🔄 Index Reconstruction / 索引重构设计说明
-
-This demo supports safe, repeatable, and deterministic index reconstruction.
-本 Demo 支持安全、可重复、结果可预测的索引重构。
-
-Why reconstruct the index? / 为什么需要索引重构
-
-The index may need to be rebuilt after deletion or corruption / 索引删除、损坏后需要恢复
-
-Chunking parameters may change / 分块参数可能调整（如 chunk size / overlap）
-
-Retrieval logic may evolve over time / 检索策略可能迭代升级
-
-Useful for debugging, migration, and incremental development / 便于调试、迁移和迭代开发
-
-How reconstruction works / 索引重构如何工作
-
-Each chunk uses a stable ID: fileId:chunkIndex / 每个 chunk 使用稳定 ID：fileId:chunkIndex
-
-Reconstructing the same source overwrites existing indexed chunks / 对同一来源重构时覆盖已有索引数据
-
-No duplicate chunks are created / 不会产生重复 chunk
-
-The operation remains idempotent / 整体操作保持幂等
-
-This mirrors a production-grade retrieval pipeline where index state can be rebuilt safely from source documents.
-这对应生产级检索系统中的常见做法：索引状态可以基于源文档安全恢复与重建。
-
-🔀 Hybrid Retrieval Support / 混合检索支持
-
-This project implements a hybrid retrieval workflow.
-The runnable demo combines keyword and vector candidate generation with RRF, then conditionally adds source-grounded graph evidence for relationship questions.
-
-本项目按混合检索工作流进行设计。
-当前 Demo 已实现关键词与向量候选的 RRF 融合，并在关系问题中按条件补充可溯源的图谱证据。
-
-Hybrid retrieval design can support:
-
-Keyword-based search / 关键词检索
-
-Vector-based semantic retrieval / 基于语义的向量检索
-
-Combined ranking strategies / 组合式排序策略
-
-Future reranking integration / 后续重排能力扩展
-
-## Retrieval Evaluation / 检索回测
-
-The repository includes a fixed, synthetic and anonymized challenge set for measuring retrieval changes. It currently contains 64 labelled cases across keyword, paraphrase, cross-document relationship, version-conflict, distractor, multi-condition, and negative-query scenarios.
-
-仓库提供一套固定的合成脱敏挑战题集，用于比较检索改动前后的质量。当前共有 64 条带标注样本，覆盖关键词、改写、跨文档关系、版本冲突、干扰文档、多条件与负例场景。
-
-From the `demo` directory, run:
-
-```bash
-docker compose exec kb-api python /app/eval/run_retrieval_eval.py --bootstrap
-```
-
-`--bootstrap` uploads any missing fixture documents, rebuilds the selected demo index, runs the fixed golden evaluation cases, and writes the Markdown report to `eval/reports/latest.md`.
-
-The report includes:
-
-- `Recall@3` and `Recall@5` for evidence retrieval,
-- `MRR@10` for ranking quality,
-- a negative-query no-result rate,
-- failed queries with their returned chunks.
-
-Validate the dataset and evaluation logic without starting Docker:
-
-```bash
-python eval/run_retrieval_eval.py --validate-only
-python eval/eval_smoke_test.py
-```
-
-The fixtures are intentionally synthetic and should be used with a clean demo data volume, not a real knowledge base. See `eval/README.md` for the challenge-set design and its current diagnostic baseline.
-
-To compare `TEXT`, `VECTOR`, `HYBRID`, and `HYBRID+Graph` on the same challenge set, run:
-
-```bash
-docker compose exec kb-api python /app/eval/run_experiment_matrix.py --bootstrap
-```
-
-The comparison produces machine-readable metric payloads and can be checked with `eval/quality_gate.py` before accepting a retrieval configuration change.
-
-## Vector Retrieval / 向量检索
-
-`VECTOR` is a real OpenSearch k-NN retrieval path. It stores normalized chunk embeddings in the separate `kb_demo_chunks_vector_v1` index, so the existing BM25 index remains safe and directly comparable.
-
-`VECTOR` 是真实的 OpenSearch k-NN 检索路径。它将归一化 chunk 向量写入独立的 `kb_demo_chunks_vector_v1` 索引，现有 BM25 索引不会被迁移或覆盖，可以直接对比。
-
-The Docker demo uses `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` with 384 dimensions on CPU. The first vector rebuild downloads the model; later rebuilds reuse the local model cache.
-
-Docker Demo 默认使用 CPU 上的 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`（384 维）。首次向量重建会下载模型，之后会复用本地模型缓存。
-
-From the `demo` directory, rebuild and evaluate vector retrieval:
-
-```bash
-docker compose up -d --build
-docker compose exec kb-api python /app/eval/run_retrieval_eval.py \
-  --bootstrap \
-  --mode VECTOR \
-  --output /app/eval/reports/vector_baseline.md
-```
-
-Search a query directly with either retrieval path:
-
-```bash
-curl "http://localhost:8080/search?q=远程访问公司资源需要什么安全措施&mode=TEXT"
-curl "http://localhost:8080/search?q=远程访问公司资源需要什么安全措施&mode=VECTOR"
-```
-
-`/search` returns `textRank` for TEXT results and `vectorRank` plus `embeddingModel` for VECTOR results.
-
-## Hybrid Retrieval / 混合检索
-
-`HYBRID` retrieves candidates from the BM25 and vector indexes independently, then applies Reciprocal Rank Fusion (RRF): `1 / (rrfK + rank)`. This avoids directly comparing incompatible BM25 and vector scores while rewarding evidence returned by both paths.
-
-`HYBRID` 会先从 BM25 与向量索引独立召回候选，再以 Reciprocal Rank Fusion（RRF，`1 / (rrfK + rank)`）融合排序。这样无需直接比较两种不可互换的原始分数，并会优先保留被两条证据路径同时召回的 chunk。
-
-Run the three baselines against the same golden set:
-
-```bash
-docker compose exec kb-api python /app/eval/run_retrieval_eval.py --bootstrap --mode TEXT --output /app/eval/reports/bm25_baseline.md
-docker compose exec kb-api python /app/eval/run_retrieval_eval.py --bootstrap --mode VECTOR --output /app/eval/reports/vector_baseline.md
-docker compose exec kb-api python /app/eval/run_retrieval_eval.py --bootstrap --mode HYBRID --output /app/eval/reports/hybrid_baseline.md
-```
-
-```bash
-curl "http://localhost:8080/search?q=采购费用为什么要先走审批再申请报销？&mode=HYBRID"
-```
-
-Hybrid results expose `textRank`, `vectorRank`, `graphRank`, source scores, and `fusionScore`; `candidateK` and `rrfK` are returned at the response root. The default values are configurable through `HYBRID_CANDIDATE_K=20` and `HYBRID_RRF_K=60`.
-
-混合结果会返回 `textRank`、`vectorRank`、`graphRank`、各路分数与 `fusionScore`，响应根部还会返回 `candidateK` 和 `rrfK`。默认值可通过 `HYBRID_CANDIDATE_K=20` 和 `HYBRID_RRF_K=60` 调整。
-
-## Evidence-Gated Retrieval / 证据门控检索
-
-The production-oriented `HYBRID` path adds a small, inspectable decision layer after retrieval. A query is returned as `ANSWER` only when at least one fused candidate reaches the configured BM25 evidence threshold. Otherwise the API returns `NO_ANSWER`, clears the candidate list, and exposes the decision reason and numeric evidence instead of presenting a weakly similar document as an answer.
-
-面向生产使用的 `HYBRID` 路径会在检索后增加一个轻量、可检查的决策层。至少一个融合候选达到配置的 BM25 证据阈值时才返回 `ANSWER`；否则 API 返回 `NO_ANSWER`、清空候选列表，并返回判断原因和数值证据，避免把弱语义相似的文档伪装成答案。
-
-`NO_ANSWER_MIN_TEXT_SCORE=4.0` is calibrated against the current fixed golden set and should be re-measured after replacing the demo documents. `TEXT` and `VECTOR` retain their raw retrieval behavior; the gate is deliberately enabled only for the dual-evidence `HYBRID` path.
-
-`NO_ANSWER_MIN_TEXT_SCORE=4.0` 基于当前固定 golden set 校准；替换 Demo 文档后必须重新回测。`TEXT` 与 `VECTOR` 保留原始检索行为，门控仅在双证据 `HYBRID` 路径启用。
-
-```bash
-docker compose exec kb-api python /app/eval/run_retrieval_eval.py \
-  --bootstrap \
-  --mode HYBRID \
-  --output /app/eval/reports/no_answer_baseline.md
-```
-
-The report adds `Positive answer rate`, `Negative no-answer rate`, and a `Decision Errors` section alongside retrieval metrics.
-
-## Evidence Graph Retrieval / 证据图谱检索
-
-During a HYBRID rebuild, the demo creates a lightweight evidence graph in OpenSearch: `Document -> Chunk` (`CONTAINS`), adjacent chunks (`NEXT_CHUNK`), and shared source-text entities (`MENTIONS`). Entity edges are created only for terms that occur in at least two chunks, and every edge retains its originating file and chunk metadata.
-
-HYBRID 重建时，Demo 会在 OpenSearch 中创建轻量证据图谱：`Document -> Chunk`（`CONTAINS`）、相邻 chunk（`NEXT_CHUNK`）以及跨 chunk 的源文本共享实体（`MENTIONS`）。实体边只会为至少出现在两个 chunk 中的词组创建，且每条边都保留原始文件和 chunk 元数据。
-
-Queries containing relationship cues such as `关联`, `审批`, `负责`, or `为什么` are graph-routed after retrieval. Queries whose top BM25 and vector candidates do not overlap are also routed as a candidate-disagreement case. The API returns `graphRouted`, `graphRouteReason`, `graphCandidateOverlap`, and `graphEvidence`, showing the shared entity, source chunk, target chunk, and source preview. Graph targets are resolved back to original text chunks and become a third, lower-weight RRF candidate list with `graphRank`; graph score only fills candidates without direct BM25/vector evidence, so it cannot reshuffle a direct match. The graph never invents relations or answers from an edge alone.
-
-包含 `关联`、`审批`、`负责`、`为什么` 等关系信号的查询会在检索后触发图谱路由；BM25 与向量 Top 候选没有重叠时也会以候选分歧触发。API 会返回 `graphRouted`、`graphRouteReason`、`graphCandidateOverlap` 与 `graphEvidence`，展示共享实体、起始 chunk、目标 chunk 与来源预览。图谱目标会回查为原始文本 chunk，以较低权重的 `graphRank` 作为第三路候选参与 RRF；已有 BM25 或向量直接证据的 chunk 不会被图谱重复加分，以保护直接命中的排序。图谱边本身不会生成事实或答案。
-
-```bash
-docker compose exec kb-api python /app/eval/run_retrieval_eval.py \
-  --bootstrap \
-  --mode HYBRID \
-  --output /app/eval/reports/graph_baseline.md
-```
-
-The graph baseline adds `Graph evidence coverage`, relationship-query route rate, and graph-candidate coverage. `GRAPH_RRF_WEIGHT=0.1` is intentionally lower than direct retrieval weights and must be re-evaluated with every corpus or graph change. These metrics make graph routing measurable without claiming that it replaces the BM25/vector baseline.
-
-## Citation-First Ask / 带引用问答
-
-`POST /ask` is the user-facing entry point. It always uses `HYBRID` retrieval, evidence gating, and conditional graph expansion before constructing an answer. A `NO_ANSWER` decision is returned unchanged and never reaches a generator.
-
-`POST /ask` 是面向使用者的入口。它固定使用 `HYBRID` 检索、证据门控和条件图谱扩展后再构造答案。`NO_ANSWER` 会原样返回，绝不会发送给生成器。
-
-Without any external configuration, `/ask` returns an extractive, citable answer from the highest-ranked evidence so the Docker demo remains fully runnable. To enable a grounded OpenAI-compatible chat completion, configure `LLM_API_URL`, `LLM_API_KEY`, and `LLM_MODEL`. The request contains only the selected evidence context; if the provider fails, the API safely falls back to extractive evidence.
-
-未配置外部服务时，`/ask` 会从最高排名证据返回带引用的抽取式答案，因此 Docker Demo 始终可运行。配置 `LLM_API_URL`、`LLM_API_KEY` 与 `LLM_MODEL` 后可启用受证据约束的 OpenAI-compatible 对话补全。请求只包含选中的证据上下文；若服务失败，API 会安全降级为抽取式证据。
-
-```bash
 curl -X POST http://localhost:8080/ask \
   -H "Content-Type: application/json" \
   -d '{"q":"采购金额超过五千元需要谁审批？","topK":3}'
-
-docker compose exec kb-api python /app/eval/run_retrieval_eval.py \
-  --bootstrap \
-  --mode HYBRID \
-  --endpoint ask \
-  --output /app/eval/reports/ask_baseline.md
 ```
 
-The response contains `answer`, `answerMode`, `answerReason`, and structured `citations`; the ask baseline adds `Citation coverage` for positive golden cases.
+The first vector run downloads `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`; Docker keeps the model cache for later runs. To use an OpenAI-compatible generator, configure `LLM_API_URL`, `LLM_API_KEY`, and `LLM_MODEL`. Without them, `/ask` remains runnable through an extractive, cited fallback.
 
-## Quality Feedback Loop / 质量与反馈闭环
+## Reproduce The Evaluation
 
-Each `/ask` response includes a `requestId`. The API stores a privacy-minimized event in the Docker data volume: a query fingerprint and length, decision, answer mode, retrieval count, citation count, route reason, latency, and a five-candidate rank snapshot. It does not store the raw question or answer text.
-
-每个 `/ask` 响应都包含 `requestId`。API 会在 Docker 数据卷中写入最小化隐私事件：查询指纹和长度、决策、答案模式、召回数量、引用数量与图谱路由状态；不会记录原始问题或答案文本。
+Run from `demo/`. Evaluation uses `kb-eval-api`, not the interactive demo index.
 
 ```bash
-curl -X POST http://localhost:8080/feedback \
-  -H "Content-Type: application/json" \
-  -d '{"requestId":"<request-id>","rating":"UP"}'
+# Compare TEXT / VECTOR / HYBRID / HYBRID+Graph on the held-out test set.
+EVAL_REVISION="$(git rev-parse HEAD)" docker compose exec -e EVAL_REVISION \
+  kb-eval-api python /app/eval/run_experiment_matrix.py --bootstrap --split test
 
-curl http://localhost:8080/feedback/summary
+# Reproduce the current answer-quality evaluation and regression check.
+EVAL_REVISION="$(git rev-parse HEAD)" docker compose exec -e EVAL_REVISION \
+  kb-eval-api python /app/eval/run_retrieval_eval.py \
+  --endpoint ask --mode HYBRID --graph enabled --split test --top-k 10 \
+  --output /app/eval/reports/candidate.md \
+  --metrics-output /app/eval/reports/candidate.json
 
-curl http://localhost:8080/feedback/review-queue
+docker compose exec kb-eval-api python /app/eval/quality_gate.py \
+  --baseline /app/eval/reports/quality_baseline.json \
+  --candidate /app/eval/reports/candidate.json
 ```
 
-Feedback is intentionally binary (`UP` or `DOWN`) for this personal demo. The review queue combines `NO_ANSWER` events and `DOWN` ratings into privacy-minimized candidates for manual golden-set review. Calibration should use these reviewed cases and the fixed evaluation report, not mutate retrieval settings automatically.
+The machine-readable output records the dataset, qrels, split, corpus-manifest checksums, endpoint configuration, and source revision. A result from a changed corpus or split cannot be compared by the gate.
 
-The evaluation bootstrap now indexes every fixture document, including distractor documents. Golden cases can be marked `standard` or `challenge`; reports include Recall@3 and MRR@10 for both groups.
+## Evaluation Design
 
-🧠 Engineering Highlights / 工程亮点
+| Layer | Measures |
+| --- | --- |
+| Retrieval | Recall@1/3/5, Precision@3/5, nDCG@3/5, MRR@10 |
+| Answer and citations | Answer correctness, citation coverage/correctness/completeness, extractive claim faithfulness |
+| Safe behavior | Positive answer rate and negative no-answer rate |
+| Statistical confidence | Paired non-parametric bootstrap, 95% percentile CI |
+| Regression control | Frozen corpus/qrels, dev/test split, isolated evaluation index, quality gate |
 
-Hybrid indexing design / 混合索引设计
+The Golden Set includes keyword, paraphrase, cross-document relationship, version-conflict, distractor, multi-condition, and negative cases. See [eval/README.md](eval/README.md) for definitions and known limitations.
 
-OpenSearch bulk indexing / OpenSearch 批量写入
+## Project Structure
 
-Chunk-level search with highlight / chunk 粒度检索 + 高亮
-
-Safe index rebuild and reconstruction / 安全索引重建与索引重构
-
-Fully containerized demo / 全容器化可运行
-
-Zero local environment dependency / 本地零环境依赖
-
-This repository focuses on clarity, portability, and retrieval system design, rather than framework or business complexity.
-本仓库强调清晰、可移植、可复现的检索系统设计，而非框架堆叠或业务复杂度。
-
-📊 OpenSearch Dashboards / 可视化界面
-
-After startup, visit / 启动后访问：
-http://localhost:5601
-
-You can inspect / 你可以查看：
-
-Index mappings / 索引 mapping
-
-Indexed chunks / 已写入的 chunk 文档
-
-Query behavior / 查询与高亮效果
-
-Rebuilt index state / 重建后的索引状态
-
-📦 Project Structure (Demo) / 项目结构（Demo）
-```
+```text
 rag-hybrid-retrieval-demo/
-
-demo/
-
-docker-compose.yml
-
-api/
-
-app.py
-
-Dockerfile
-
-requirements.txt
-
-demo.txt
-
-src_sanitized/ （Sanitized Java / Python code, design reference）
-
-README.md
+├── demo/
+│   ├── api/                 # FastAPI retrieval and answer service
+│   └── docker-compose.yml   # OpenSearch, demo API, isolated eval API
+├── eval/                    # Frozen fixtures, qrels, evaluator, reports, gates
+├── docs/                    # Architecture, results, demo script, upgrade history
+└── .github/workflows/       # API and evaluation smoke tests
 ```
-🛡️ Notes / 说明
 
-This repository is intended for portfolio and demo usage.
-本仓库用于作品集展示与可运行 Demo。
+## Scope And Boundaries
 
-The full system design includes TEXT, VECTOR, and HYBRID retrieval modes, along with extensible indexing and reconstruction workflows.
-完整系统设计包含 TEXT、VECTOR、HYBRID 检索模式，并支持可扩展的索引与重构流程。
+This is a focused, personal portfolio project rather than a general RAG platform.
 
-This demo focuses on a clean and reproducible retrieval pipeline while preserving a realistic hybrid-retrieval architecture.
-本 Demo 聚焦于干净、可复现的检索闭环，同时保留真实混合检索系统的架构设计。
+- The corpus and Golden Set are synthetic and anonymized; high retrieval scores apply to this frozen benchmark, not every enterprise knowledge base.
+- The graph provides source-traceable relationship evidence; it does not claim a ranking improvement on the current held-out set.
+- The extractive fallback is evaluated deterministically. Semantic faithfulness for an enabled LLM needs an LLM judge or human review.
+- Current abstention is intentionally conservative: 6 of 13 held-out negative questions still receive an answer.
+- Feedback creates review candidates; it never automatically mutates graph relations, labels, or retrieval configuration.
 
-Contributions and issues are welcome.
-欢迎提 issue 或 PR。
+## Further Reading
+
+- [Architecture and evidence responsibilities](docs/ARCHITECTURE.md)
+- [Held-out results and failure analysis](docs/RESULTS.md)
+- [Golden Set and evaluation protocol](eval/README.md)
+- [Three-minute demonstration script](docs/DEMO_SCRIPT.md)
+- [Delivery change log](docs/CHANGELOG.md)
