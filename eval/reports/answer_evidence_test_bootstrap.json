@@ -1,0 +1,116 @@
+{
+  "results": [
+    {
+      "metric": "recall_at_5",
+      "pairedCases": 34,
+      "baselineEligibleCases": 34,
+      "candidateEligibleCases": 34,
+      "baselineMean": 0.9705882352941176,
+      "candidateMean": 0.9705882352941176,
+      "observedDelta": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "probabilityCandidateGreater": 0.0,
+      "samples": 5000,
+      "seed": 7
+    },
+    {
+      "metric": "ndcg_at_5",
+      "pairedCases": 34,
+      "baselineEligibleCases": 34,
+      "candidateEligibleCases": 34,
+      "baselineMean": 0.7930335385049317,
+      "candidateMean": 0.7930335385049317,
+      "observedDelta": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "probabilityCandidateGreater": 0.0,
+      "samples": 5000,
+      "seed": 7
+    },
+    {
+      "metric": "mrr_at_10",
+      "pairedCases": 34,
+      "baselineEligibleCases": 34,
+      "candidateEligibleCases": 34,
+      "baselineMean": 0.7598039215686274,
+      "candidateMean": 0.7598039215686274,
+      "observedDelta": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "probabilityCandidateGreater": 0.0,
+      "samples": 5000,
+      "seed": 7
+    },
+    {
+      "metric": "answer_correctness",
+      "pairedCases": 34,
+      "baselineEligibleCases": 34,
+      "candidateEligibleCases": 34,
+      "baselineMean": 0.5441176470588235,
+      "candidateMean": 0.8529411764705882,
+      "observedDelta": 0.3088235294117647,
+      "ci95": [
+        0.14705882352941177,
+        0.4852941176470588
+      ],
+      "probabilityCandidateGreater": 0.9998,
+      "samples": 5000,
+      "seed": 7
+    },
+    {
+      "metric": "citation_correctness",
+      "pairedCases": 34,
+      "baselineEligibleCases": 34,
+      "candidateEligibleCases": 34,
+      "baselineMean": 0.3235294117647059,
+      "candidateMean": 0.5147058823529411,
+      "observedDelta": 0.1911764705882353,
+      "ci95": [
+        0.16176470588235298,
+        0.22549019607843138
+      ],
+      "probabilityCandidateGreater": 1.0,
+      "samples": 5000,
+      "seed": 7
+    },
+    {
+      "metric": "citation_completeness",
+      "pairedCases": 34,
+      "baselineEligibleCases": 34,
+      "candidateEligibleCases": 34,
+      "baselineMean": 0.8970588235294118,
+      "candidateMean": 0.9558823529411765,
+      "observedDelta": 0.058823529411764705,
+      "ci95": [
+        0.0,
+        0.14705882352941177
+      ],
+      "probabilityCandidateGreater": 0.8746,
+      "samples": 5000,
+      "seed": 7
+    },
+    {
+      "metric": "negative_no_answer_rate",
+      "pairedCases": 13,
+      "baselineEligibleCases": 13,
+      "candidateEligibleCases": 13,
+      "baselineMean": 0.0,
+      "candidateMean": 0.5384615384615384,
+      "observedDelta": 0.5384615384615384,
+      "ci95": [
+        0.23076923076923078,
+        0.7692307692307693
+      ],
+      "probabilityCandidateGreater": 0.9998,
+      "samples": 5000,
+      "seed": 7
+    }
+  ]
+}
